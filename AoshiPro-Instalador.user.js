@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.4
+// @version      1.5
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -152,7 +152,17 @@
 
   // Conversa com o botão "Atualizar" do Hub (o script roda na página, o instalador no Tampermonkey).
   const root = document.documentElement;
-  const mark = () => { root.dataset.aoshiInstaller = '1'; root.dataset.aoshiUpdated = String(GM_getValue(K.when, 0) || ''); };
+  // "Pendente" = já existe no Tampermonkey uma cópia mais nova do que a que esta página está rodando.
+  const ranWhen = Number(GM_getValue(K.when, 0)) || 0;
+  let lastPending = false;
+  const mark = () => {
+    const when = Number(GM_getValue(K.when, 0)) || 0;
+    const pending = ranWhen > 0 && when !== ranWhen;
+    root.dataset.aoshiInstaller = '1'; root.dataset.aoshiInstallerV = '1.5';
+    root.dataset.aoshiUpdated = String(when || ''); root.dataset.aoshiPending = pending ? '1' : '';
+    return pending;
+  };
+  const sync = () => { const p = mark(); if (p !== lastPending) { lastPending = p; document.dispatchEvent(new Event('aoshi-installer-result')); } };
   const reply = msg => { root.dataset.aoshiInstallerMsg = msg; mark(); document.dispatchEvent(new Event('aoshi-installer-result')); };
 
   function check(force) {
@@ -166,6 +176,7 @@
         await store(r);
         if (!had) { toast('Aoshi Pro instalado. Recarregando a página…'); setTimeout(() => location.reload(), 900); }
         else toast('Aoshi Pro atualizado. A versão nova vale a partir da próxima página.', false, { label: 'Recarregar agora', run: () => location.reload() });
+        sync();
         if (force) reply('Versão nova baixada. Recarregue a página para usar.');
       } else if (r.kind === 'same') { if (force) { toast('Aoshi Pro já está na última versão.'); reply('Já está na última versão.'); } }
       else if (r.kind === 'auth') { if (had) toast(r.message + ' Rodando a última cópia guardada.', true, { label: 'Trocar token', run: () => askToken(r.message) }); else askToken(r.message); }
@@ -182,11 +193,15 @@
 
   mark();
   document.addEventListener('aoshi-installer-check', () => check(true));
+  // Hub aberto: conferida rápida e silenciosa (no máximo uma por minuto).
+  document.addEventListener('aoshi-installer-peek', () => { if (Date.now() - Number(GM_getValue(K.at, 0)) > 60000) { GM_setValue(K.at, 0); check(false); } });
   unpack(GM_getValue(K.code, '')).then(code => { if (code) run(code); })
     .catch(() => { GM_deleteValue(K.code); GM_deleteValue(K.etag); GM_deleteValue(K.at); })
     .finally(() => {
       check(false);
       // Página aberta por muito tempo (automáticos rodando): confere sozinho de tempos em tempos.
       setInterval(() => check(false), 60000);
+      // Outra aba pode ter baixado a versão nova: avisa o Hub desta página também.
+      setInterval(sync, 5000);
     });
 })();
