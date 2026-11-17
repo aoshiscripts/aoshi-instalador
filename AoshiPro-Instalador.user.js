@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.3
+// @version      1.4
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -184,5 +184,9 @@
   document.addEventListener('aoshi-installer-check', () => check(true));
   unpack(GM_getValue(K.code, '')).then(code => { if (code) run(code); })
     .catch(() => { GM_deleteValue(K.code); GM_deleteValue(K.etag); GM_deleteValue(K.at); })
-    .finally(() => check(false));
+    .finally(() => {
+      check(false);
+      // Página aberta por muito tempo (automáticos rodando): confere sozinho de tempos em tempos.
+      setInterval(() => check(false), 60000);
+    });
 })();
