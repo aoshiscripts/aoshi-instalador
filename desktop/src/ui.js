@@ -18,6 +18,7 @@ function renderTabs() {
     $('#proxy-name').textContent = a.profileName;
     $('#proxy-chip .dot').style.background = a.profileId ? (a.color || profColor(a.profileId)) : '#52525b';
     document.title = `${a.title} — Aoshi Pro`;
+    const zc = $('#zoom-chip'); zc.hidden = !a.zoom || a.zoom === (settings.zoom || 100); zc.textContent = (a.zoom || 100) + '%';
   }
 }
 $('#tabs').addEventListener('click', e => {
@@ -34,6 +35,17 @@ $('#reload').onclick = () => state.active && aoshi.nav(state.active, 'reload');
 $('#addr').addEventListener('keydown', e => { if (e.key === 'Enter' && state.active) { aoshi.nav(state.active, 'go', $('#addr').value); $('#addr').blur(); } });
 $('#addr').addEventListener('focus', () => $('#addr').select());
 $('#add').onclick = () => openPick('new');
+$('#home').onclick = () => state.active && aoshi.nav(state.active, 'home');
+$('#zoom-chip').onclick = () => state.active && aoshi.nav(state.active, 'zoom', 0);
+
+// ---------- Buscar na página (Ctrl+F) ----------
+function openFind() { $('#findbar').hidden = false; $('#find-q').focus(); $('#find-q').select(); }
+function closeFind() { $('#findbar').hidden = true; $('#find-n').textContent = ''; state.active && aoshi.nav(state.active, 'find', null); }
+$('#find-q').addEventListener('input', () => { const t = $('#find-q').value; if (!t) { $('#find-n').textContent = ''; aoshi.nav(state.active, 'find', null); return; } aoshi.nav(state.active, 'find', { text: t }); });
+$('#find-q').addEventListener('keydown', e => { if (e.key === 'Enter') { const t = $('#find-q').value; if (t) aoshi.nav(state.active, 'find', { text: t, next: true, forward: !e.shiftKey }); } if (e.key === 'Escape') closeFind(); });
+$('#find-next').onclick = () => { const t = $('#find-q').value; if (t) aoshi.nav(state.active, 'find', { text: t, next: true }); };
+$('#find-prev').onclick = () => { const t = $('#find-q').value; if (t) aoshi.nav(state.active, 'find', { text: t, next: true, forward: false }); };
+$('#find-x').onclick = closeFind;
 $('#proxy-chip').onclick = () => openPick('change');
 
 // ---------- Janelinhas ----------
@@ -109,6 +121,58 @@ $('#prof-add').onclick = () => { draft.push({ id: '', name: `Proxy ${draft.lengt
 $('#prof-save').onclick = async () => { profiles = await aoshi.saveProfiles(draft); show('#m-prof', false); renderTabs(); };
 $('#btn-profiles').onclick = openProfiles;
 
+// ---------- Configurações ----------
+let settings = {}, setInfo = {};
+const fmtWhen = t => t ? new Date(t).toLocaleString('pt-BR') : '—';
+async function openSettings(sec) {
+  setInfo = await aoshi.getSettings(); settings = setInfo.settings;
+  const zs = $('[data-s="zoom"]'); if (!zs.options.length) zs.innerHTML = [67, 75, 80, 90, 100, 110, 125, 150, 175, 200].map(z => `<option value="${z}">${z}%</option>`).join('');
+  document.querySelectorAll('#m-set [data-s]').forEach(el => { const v = settings[el.dataset.s]; if (el.type === 'checkbox') el.checked = !!v; else el.value = String(v ?? ''); });
+  document.querySelectorAll('#m-set input[name="startup"]').forEach(r => { r.checked = r.value === settings.startup; });
+  $('#down-dir').value = settings.downloadDir || setInfo.downloadsDefault;
+  $('#clr-prof').innerHTML = '<option value="*">Todos os perfis</option><option value="">Sem proxy</option>' + setInfo.profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+  $('#clr-info').textContent = `Cache ocupando cerca de ${setInfo.cacheMB} MB.`;
+  $('#set-script').textContent = setInfo.script ? 'v' + setInfo.script : '—';
+  $('#set-script-when').textContent = fmtWhen(setInfo.scriptWhen);
+  $('#set-token-st').textContent = setInfo.hasToken ? 'Token salvo (cifrado neste computador).' : 'Nenhum token salvo.';
+  $('#set-ver').textContent = 'v' + setInfo.version;
+  $('#set-app-msg').textContent = '';
+  showSec(sec || document.querySelector('.set-nav a.on')?.dataset.sec || 'geral');
+  show('#m-set', true);
+}
+function showSec(sec) {
+  document.querySelectorAll('.set-nav a').forEach(a => a.classList.toggle('on', a.dataset.sec === sec));
+  document.querySelectorAll('.set-body section').forEach(s => { s.hidden = s.dataset.sec !== sec; });
+}
+async function saveSetting(k, v) { settings = await aoshi.saveSettings({ [k]: v }); renderTabs(); }
+$('.set-nav').addEventListener('click', e => { const a = e.target.closest('a[data-sec]'); if (a) showSec(a.dataset.sec); });
+$('#m-set').addEventListener('change', e => {
+  const el = e.target;
+  if (el.name === 'startup') return saveSetting('startup', el.value);
+  const k = el.dataset.s; if (!k) return;
+  let v = el.type === 'checkbox' ? el.checked : el.value;
+  if (k === 'zoom' || k === 'checkMin') v = Number(v);
+  if (k === 'home') { v = String(v).trim(); if (v && !/^https?:\/\//i.test(v)) { v = 'https://' + v; el.value = v; } }
+  saveSetting(k, v);
+});
+$('#btn-settings').onclick = () => openSettings();
+$('#clr-go').onclick = async () => {
+  const what = $('#clr-what').value, prof = $('#clr-prof').value;
+  $('#clr-info').textContent = 'Limpando…';
+  await aoshi.clearData({ profileId: prof, what });
+  $('#clr-info').textContent = 'Pronto. ' + (what === 'cache' ? 'Cache limpo.' : 'Recarregue as abas desse perfil.');
+};
+$('#set-proxies').onclick = () => { show('#m-set', false); openProfiles(); };
+$('#down-pick').onclick = async () => { const d = await aoshi.pickDownloads(); if (d) { $('#down-dir').value = d; saveSetting('downloadDir', d); } };
+$('#down-open').onclick = () => aoshi.openDownloads();
+$('#set-check').onclick = async () => { const msg = await aoshi.checkCode(); notice(msg, /nova/i.test(msg) ? { label: 'Recarregar abas', run: () => aoshi.reloadAll() } : null); const i = await aoshi.getSettings(); $('#set-script').textContent = i.script ? 'v' + i.script : '—'; $('#set-script-when').textContent = fmtWhen(i.scriptWhen); };
+$('#set-reload').onclick = () => aoshi.reloadAll();
+$('#set-token').onclick = () => { show('#m-set', false); show('#m-token', true); };
+$('#set-token-clear').onclick = async () => { await aoshi.clearToken(); $('#set-token-st').textContent = 'Nenhum token salvo.'; };
+$('#set-app-check').onclick = async () => { $('#set-app-msg').textContent = 'Procurando…'; $('#set-app-msg').textContent = await aoshi.checkAppUpdate(); };
+$('#set-releases').onclick = () => aoshi.openReleases();
+$('#set-reset').onclick = async () => { settings = await aoshi.resetSettings(); show('#m-set', false); openSettings('prog'); notice('Configurações restauradas.'); };
+
 // Token do GitHub
 $('#token-ok').onclick = async () => {
   const v = $('#token').value.trim(); if (!v) { $('#token-err').textContent = 'Cole o token.'; return; }
@@ -137,6 +201,13 @@ aoshi.on((ch, d) => {
   if (ch === 'tabs') { state = d; renderTabs(); }
   else if (ch === 'profiles') { profiles = d.profiles || []; renderTabs(); }
   else if (ch === 'new-tab') openPick('new');
+  else if (ch === 'find-open') openFind();
+  else if (ch === 'find') { $('#find-n').textContent = d.matches ? `${d.active}/${d.matches}` : '0/0'; }
+  else if (ch === 'download') {
+    if (d.state === 'start') notice(`Baixando ${d.name}…`);
+    else if (d.state === 'completed') notice(`${d.name} baixado.`, { label: 'Mostrar na pasta', run: () => aoshi.openDownloads(d.file) });
+    else if (d.state !== 'cancelled') notice(`Não consegui baixar ${d.name}.`);
+  }
   else if (ch === 'need-token') { if (d.reason) $('#token-reason').textContent = d.reason; show('#m-token', true); }
   else if (ch === 'code-info') { $('#code-ver').textContent = d.version ? 'v' + d.version : ''; if (!d.hasToken) show('#m-token', true); }
   else if (ch === 'code-updated') { $('#code-ver').textContent = d.version ? 'v' + d.version : ''; if (!d.first) notice(`Aoshi Pro ${d.version} baixado.`, { label: 'Recarregar abas', run: () => aoshi.reloadAll() }); }
@@ -145,4 +216,8 @@ aoshi.on((ch, d) => {
     else notice(`Baixando a versão ${d.version} do programa…`);
   }
 });
-document.addEventListener('keydown', e => { if (e.ctrlKey && e.key.toLowerCase() === 't') { e.preventDefault(); openPick('new'); } });
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key.toLowerCase() === 't') { e.preventDefault(); openPick('new'); }
+  if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); }
+});
+aoshi.getSettings().then(i => { settings = i.settings; });

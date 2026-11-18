@@ -15,5 +15,14 @@ contextBridge.exposeInMainWorld('aoshi', {
   reloadAll: () => ipcRenderer.invoke('tabs:reload-all'),
   installUpdate: () => ipcRenderer.invoke('app:update-install'),
   version: () => ipcRenderer.invoke('app:version'),
-  modal: on => ipcRenderer.invoke('ui:modal', on)
+  modal: on => ipcRenderer.invoke('ui:modal', on),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: s => ipcRenderer.invoke('settings:save', s),
+  resetSettings: () => ipcRenderer.invoke('settings:reset'),
+  clearData: o => ipcRenderer.invoke('data:clear', o),
+  pickDownloads: () => ipcRenderer.invoke('downloads:pick'),
+  openDownloads: f => ipcRenderer.invoke('downloads:open', f),
+  clearToken: () => ipcRenderer.invoke('token:clear'),
+  checkAppUpdate: () => ipcRenderer.invoke('app:check-update'),
+  openReleases: () => ipcRenderer.invoke('app:open-releases')
 });

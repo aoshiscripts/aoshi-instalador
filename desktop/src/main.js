@@ -22,7 +22,16 @@ app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'disable_non_proxied_u
 
 // ---------- Armazenamento ----------
 const DATA_FILE = () => path.join(app.getPath('userData'), 'aoshi-desktop.json');
-let store = { profiles: [], tabs: [], sharedModels: '[]', code: '', etag: '', when: 0, at: 0, token: '', win: null };
+let store = { profiles: [], tabs: [], sharedModels: '[]', code: '', etag: '', when: 0, at: 0, token: '', win: null, settings: {} };
+// Configurações (tela ⚙ da barra)
+const DEFAULTS = {
+  home: HOME, startup: 'restore', search: 'google', zoom: 100,
+  blockTrackers: true, dnt: true, webrtcProxy: true, denyPerms: true, clearOnExit: false,
+  downloadDir: '', askDownload: false,
+  checkMin: 5, autoStart: false, confirmClose: false
+};
+const S = () => Object.assign({}, DEFAULTS, store.settings || {});
+const SEARCH = { google: 'https://www.google.com/search?q=', bing: 'https://www.bing.com/search?q=', duck: 'https://duckduckgo.com/?q=' };
 function load() { try { store = Object.assign(store, JSON.parse(fs.readFileSync(DATA_FILE(), 'utf8'))); } catch (_) {} }
 let saveT = null;
 function save() { clearTimeout(saveT); saveT = setTimeout(() => { try { fs.writeFileSync(DATA_FILE(), JSON.stringify(store)); } catch (_) {} }, 300); }
@@ -51,7 +60,7 @@ async function fetchCode(token, etag) {
 async function checkCode(force) {
   const token = decToken(store.token);
   if (!token) { ui('need-token'); return 'Falta colar o token do GitHub.'; }
-  if (!force && Date.now() - (store.at || 0) < CHECK_MIN * 60000) return 'Já está na última versão.';
+  if (!force && Date.now() - (store.at || 0) < (Number(S().checkMin) || CHECK_MIN) * 60000) return 'Já está na última versão.';
   store.at = Date.now(); save();
   const had = !!store.code;
   const r = await fetchCode(token, had ? store.etag : '');
@@ -89,14 +98,28 @@ const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electro
 const TRACKERS = /(^|\.)(google-analytics\.com|googletagmanager\.com|googletagservices\.com|doubleclick\.net|googlesyndication\.com|adservice\.google\.[a-z.]+|facebook\.net|connect\.facebook\.com|hotjar\.(com|io)|clarity\.ms|scorecardresearch\.com|quantserve\.com|criteo\.(com|net)|taboola\.com|outbrain\.com|adnxs\.com|amazon-adsystem\.com|mixpanel\.com|segment\.(io|com)|bat\.bing\.com|ads\.yahoo\.com|yandex\.ru\/metrika|mc\.yandex\.ru|tiktok\.com\/i18n\/pixel|analytics\.tiktok\.com|newrelic\.com|nr-data\.net)$/i;
 function hardenSession(ses) {
   ses.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (d, cb) => {
-    try { const h = new URL(d.url).hostname; if (TRACKERS.test(h) && d.resourceType !== 'mainFrame') return cb({ cancel: true }); } catch (_) {}
+    try { const h = new URL(d.url).hostname; if (S().blockTrackers && TRACKERS.test(h) && d.resourceType !== 'mainFrame') return cb({ cancel: true }); } catch (_) {}
     cb({});
   });
-  ses.webRequest.onBeforeSendHeaders((d, cb) => { const h = d.requestHeaders; h['DNT'] = '1'; h['Sec-GPC'] = '1'; cb({ requestHeaders: h }); });
+  ses.webRequest.onBeforeSendHeaders((d, cb) => { const h = d.requestHeaders; if (S().dnt) { h['DNT'] = '1'; h['Sec-GPC'] = '1'; } cb({ requestHeaders: h }); });
   // sem acesso a câmera, microfone, localização, notificações etc. (o jogo não usa)
-  ses.setPermissionRequestHandler((wc, perm, cb) => cb(['clipboard-sanitized-write', 'fullscreen'].includes(perm)));
-  ses.setPermissionCheckHandler((wc, perm) => ['clipboard-sanitized-write', 'fullscreen'].includes(perm));
+  const okPerm = perm => !S().denyPerms || ['clipboard-sanitized-write', 'fullscreen'].includes(perm);
+  ses.setPermissionRequestHandler((wc, perm, cb) => cb(okPerm(perm)));
+  ses.setPermissionCheckHandler((wc, perm) => okPerm(perm));
+  // downloads: pasta escolhida nas configurações (ou perguntar onde salvar)
+  ses.on('will-download', (e, item) => {
+    const st = S();
+    if (!st.askDownload) {
+      const dir = st.downloadDir && fs.existsSync(st.downloadDir) ? st.downloadDir : app.getPath('downloads');
+      let file = path.join(dir, item.getFilename()), n = 1;
+      while (fs.existsSync(file)) { const ext = path.extname(item.getFilename()); file = path.join(dir, path.basename(item.getFilename(), ext) + ` (${n++})` + ext); }
+      item.setSavePath(file);
+    }
+    ui('download', { state: 'start', name: item.getFilename() });
+    item.once('done', (_, state) => ui('download', { state, name: item.getFilename(), file: item.getSavePath() }));
+  });
 }
+const webrtcPolicy = () => S().webrtcProxy ? 'disable_non_proxied_udp' : 'default';
 
 const prepared = new Set();
 async function sessionFor(profileId) {
@@ -129,7 +152,7 @@ function layout() {
 }
 function tabInfo(t) {
   const wc = t.view.webContents, p = profileOf(t.profileId);
-  return { id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
+  return { zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
 }
 function pushTabs() { ui('tabs', { tabs: tabs.map(tabInfo), active: activeId }); persistTabs(); }
 function persistTabs() { store.tabs = tabs.map(t => ({ profileId: t.profileId || '', url: t.view.webContents.getURL() || HOME })); save(); }
@@ -142,7 +165,9 @@ async function newTab(profileId, url, activate = true) {
   win.contentView.addChildView(view);
   const wc = view.webContents;
   // WebRTC só pelo proxy: o site não descobre o IP real por ele
-  try { wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp'); } catch (_) {}
+  try { wc.setWebRTCIPHandlingPolicy(webrtcPolicy()); } catch (_) {}
+  wc.on('did-finish-load', () => { if (t.zoom == null) wc.setZoomFactor((Number(S().zoom) || 100) / 100); });
+  wc.on('found-in-page', (_, r) => { if (t.id === activeId) ui('find', { matches: r.matches, active: r.activeMatchOrdinal }); });
   wc.setWindowOpenHandler(({ url: u }) => { newTab(t.profileId, u, true); return { action: 'deny' }; });
   wc.on('dom-ready', () => { try { if (TW_HOST.test(new URL(wc.getURL()).hostname)) inject(wc); } catch (_) {} });
   ['page-title-updated', 'did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading'].forEach(ev => wc.on(ev, pushTabs));
@@ -152,18 +177,23 @@ async function newTab(profileId, url, activate = true) {
     if (input.control && input.key.toLowerCase() === 't') { e.preventDefault(); ui('new-tab'); }
     if (input.control && input.key.toLowerCase() === 'w') { e.preventDefault(); closeTab(t.id); }
     if (input.key === 'F12') { e.preventDefault(); wc.toggleDevTools(); }
+    if (input.control && input.key.toLowerCase() === 'f') { e.preventDefault(); ui('find-open'); }
+    if (input.control && (input.key === '=' || input.key === '+')) { e.preventDefault(); zoomTab(t, +0.1); }
+    if (input.control && input.key === '-') { e.preventDefault(); zoomTab(t, -0.1); }
+    if (input.control && input.key === '0') { e.preventDefault(); t.zoom = null; wc.setZoomFactor((Number(S().zoom) || 100) / 100); pushTabs(); }
   });
-  wc.loadURL(url || HOME);
+  wc.loadURL(url || S().home || HOME);
   if (activate) activeId = t.id;
   layout(); pushTabs();
   return t;
 }
+function zoomTab(t, d) { const wc = t.view.webContents; t.zoom = Math.max(0.3, Math.min(3, Math.round((wc.getZoomFactor() + d) * 10) / 10)); wc.setZoomFactor(t.zoom); pushTabs(); }
 function closeTab(id) {
   const i = tabs.findIndex(t => t.id === id); if (i < 0) return;
   const [t] = tabs.splice(i, 1);
   try { win.contentView.removeChildView(t.view); t.view.webContents.close(); } catch (_) {}
   if (activeId === id) activeId = (tabs[i] || tabs[i - 1] || {}).id || null;
-  if (!tabs.length) newTab('', HOME); else { layout(); pushTabs(); }
+  if (!tabs.length) newTab('', S().home || HOME); else { layout(); pushTabs(); }
 }
 async function setTabProfile(id, profileId) {
   const t = tabs.find(x => x.id === id); if (!t) return;
@@ -190,9 +220,17 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'ui.html'));
   win.once('ready-to-show', () => { if (b.max) win.maximize(); win.show(); });
   win.on('resize', layout);
-  win.on('close', () => { store.win = Object.assign(win.getNormalBounds(), { max: win.isMaximized() }); persistTabs(); saveNow(); });
+  win.on('close', e => {
+    if (S().confirmClose && tabs.length > 1 && !win.__closing) {
+      const r = dialog.showMessageBoxSync(win, { type: 'question', buttons: ['Fechar', 'Cancelar'], defaultId: 0, cancelId: 1, title: 'Aoshi Pro', message: `Fechar o Aoshi Pro com ${tabs.length} abas abertas?` });
+      if (r !== 0) { e.preventDefault(); return; }
+      win.__closing = true;
+    }
+    store.win = Object.assign(win.getNormalBounds(), { max: win.isMaximized() }); persistTabs(); saveNow();
+  });
   win.webContents.on('did-finish-load', async () => {
-    const list = store.tabs && store.tabs.length ? store.tabs : [{ profileId: '', url: HOME }];
+    const st = S();
+    const list = st.startup === 'restore' && store.tabs && store.tabs.length ? store.tabs : [{ profileId: '', url: st.home || HOME }];
     for (let i = 0; i < list.length; i++) await newTab(list[i].profileId, list[i].url, i === 0);
     ui('profiles', { profiles: store.profiles });
     ui('code-info', { version: versionOf(code()), when: store.when, hasToken: !!decToken(store.token) });
@@ -210,7 +248,10 @@ ipcMain.handle('tab:nav', (_, id, what, arg) => {
   if (what === 'back') wc.navigationHistory?.goBack ? wc.navigationHistory.goBack() : wc.goBack();
   else if (what === 'fwd') wc.navigationHistory?.goForward ? wc.navigationHistory.goForward() : wc.goForward();
   else if (what === 'reload') wc.reload();
-  else if (what === 'go') { let u = String(arg || '').trim(); if (!/^https?:\/\//i.test(u)) u = /\.[a-z]{2,}/i.test(u) ? 'https://' + u : 'https://www.google.com/search?q=' + encodeURIComponent(u); wc.loadURL(u); }
+  else if (what === 'go') { let u = String(arg || '').trim(); if (!/^https?:\/\//i.test(u)) u = /^[^\s]+\.[a-z]{2,}(\/|$)/i.test(u) ? 'https://' + u : (SEARCH[S().search] || SEARCH.google) + encodeURIComponent(u); wc.loadURL(u); }
+  else if (what === 'home') wc.loadURL(S().home || HOME);
+  else if (what === 'find') { if (arg && arg.text) wc.findInPage(arg.text, { forward: arg.forward !== false, findNext: !!arg.next }); else wc.stopFindInPage('clearSelection'); }
+  else if (what === 'zoom') { if (arg === 0) { t.zoom = null; wc.setZoomFactor((Number(S().zoom) || 100) / 100); pushTabs(); } else zoomTab(t, arg); }
   else if (what === 'devtools') wc.toggleDevTools();
 });
 ipcMain.handle('profiles:save', (_, list) => {
@@ -243,6 +284,43 @@ ipcMain.handle('token:set', async (_, token) => {
   return { ok: true, version: versionOf(r.code) };
 });
 ipcMain.handle('code:check', () => checkCode(true));
+ipcMain.handle('settings:get', async () => {
+  let size = 0; try { for (const part of new Set(['direto'].concat(store.profiles.map(p => p.id)))) size += await session.fromPartition('persist:aoshi-' + part).getCacheSize(); } catch (_) {}
+  return { settings: S(), version: app.getVersion(), script: versionOf(code()), scriptWhen: store.when, hasToken: !!decToken(store.token), downloadsDefault: app.getPath('downloads'), cacheMB: Math.round(size / 1048576), profiles: store.profiles.map(p => ({ id: p.id, name: p.name })) };
+});
+ipcMain.handle('settings:save', (_, next) => {
+  const prev = S();
+  store.settings = Object.assign({}, store.settings || {}, next || {});
+  const st = S(); saveNow();
+  if (st.webrtcProxy !== prev.webrtcProxy) tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy()); } catch (_) {} });
+  if (st.zoom !== prev.zoom) tabs.forEach(t => { if (t.zoom == null) t.view.webContents.setZoomFactor((Number(st.zoom) || 100) / 100); });
+  if (st.checkMin !== prev.checkMin) restartCheckTimer();
+  if (st.autoStart !== prev.autoStart && app.isPackaged) { try { app.setLoginItemSettings({ openAtLogin: !!st.autoStart }); } catch (_) {} }
+  return st;
+});
+ipcMain.handle('settings:reset', () => { store.settings = {}; saveNow(); restartCheckTimer(); tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy()); if (t.zoom == null) t.view.webContents.setZoomFactor(1); } catch (_) {} }); return S(); });
+// Limpar dados de navegação: de um perfil ou de todos
+ipcMain.handle('data:clear', async (_, { profileId, what }) => {
+  const parts = profileId === '*' ? ['direto'].concat(store.profiles.map(p => p.id)) : [profileId || 'direto'];
+  const storages = { cookies: ['cookies'], storage: ['localstorage', 'indexdb', 'serviceworkers', 'cachestorage', 'websql', 'filesystem'], all: undefined }[what || 'all'];
+  for (const part of parts) {
+    const ses = session.fromPartition('persist:aoshi-' + part);
+    if (what === 'cache') await ses.clearCache();
+    else { await ses.clearStorageData(storages ? { storages } : undefined); if (what === 'all') await ses.clearCache(); }
+  }
+  return true;
+});
+ipcMain.handle('downloads:pick', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Pasta dos downloads', properties: ['openDirectory', 'createDirectory'], defaultPath: S().downloadDir || app.getPath('downloads') });
+  return r.canceled ? '' : r.filePaths[0];
+});
+ipcMain.handle('downloads:open', (_, file) => { if (file) shell.showItemInFolder(file); else shell.openPath(S().downloadDir || app.getPath('downloads')); });
+ipcMain.handle('token:clear', () => { store.token = ''; saveNow(); ui('code-info', { version: versionOf(code()), when: store.when, hasToken: false }); return true; });
+ipcMain.handle('app:check-update', async () => {
+  if (!app.isPackaged) return 'Só funciona no programa instalado.';
+  try { const r = await require('electron-updater').autoUpdater.checkForUpdates(); const v = r && r.updateInfo && r.updateInfo.version; return v && v !== app.getVersion() ? `Versão ${v} encontrada: baixando.` : 'Você já está na versão mais nova.'; } catch (e) { return 'Não consegui conferir: ' + (e.message || e); }
+});
+ipcMain.handle('app:open-releases', () => shell.openExternal('https://github.com/aoshiscripts/aoshi-instalador/releases'));
 ipcMain.handle('ui:modal', (_, on) => { modalOpen = !!on; layout(); });
 ipcMain.handle('tabs:reload-all', () => tabs.forEach(t => t.view.webContents.reload()));
 ipcMain.handle('app:update-install', () => { try { require('electron-updater').autoUpdater.quitAndInstall(); } catch (_) {} });
@@ -275,11 +353,22 @@ function setupAutoUpdate() {
   setInterval(() => au.checkForUpdates().catch(() => {}), 6 * 3600 * 1000);
 }
 
+let checkTimer = null;
+function restartCheckTimer() { clearInterval(checkTimer); checkTimer = setInterval(() => checkCode(false), Math.max(1, Number(S().checkMin) || CHECK_MIN) * 60000); }
+// Limpar dados ao fechar (cookies, cache e armazenamento de todos os perfis)
+let clearing = false;
+app.on('before-quit', e => {
+  if (!S().clearOnExit || clearing) return;
+  e.preventDefault(); clearing = true;
+  const parts = ['direto'].concat(store.profiles.map(p => p.id));
+  Promise.all(parts.map(p => { const ses = session.fromPartition('persist:aoshi-' + p); return Promise.all([ses.clearStorageData(), ses.clearCache()]).catch(() => {}); })).finally(() => app.quit());
+});
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.whenReady().then(() => {
   load();
   createWindow();
-  setInterval(() => checkCode(false), CHECK_MIN * 60000);
+  restartCheckTimer();
+  try { if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!S().autoStart }); } catch (_) {}
   setupAutoUpdate();
 });
 app.on('window-all-closed', () => app.quit());
