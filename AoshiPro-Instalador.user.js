@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.8
+// @version      1.9
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -53,8 +53,8 @@
     const st = document.createElement('style');
     st.id = r60 ? 'aoshi-group-icon-reducer-60' : 'aoshi-group-icon-reducer-50';
     st.textContent = r60
-      ? '[id^="map_icons_"],#map_container img[src*="/map/reserved_"]{transform:scale(.6)!important;transform-origin:bottom right!important;transition:none!important;animation:none!important}[id^="map_icons_"] img{width:13px!important;height:13px!important;max-width:13px!important;max-height:13px!important;transform:scale(.6)!important;transform-origin:bottom right!important}#map_container img[src*="/map/reserved_"]{transform:scale(.63)!important}'
-      : '#map_container img[id^="map_icons_"],#map_container img[src*="/map/reserved_"]{transform:scale(.5)!important;transform-origin:bottom right!important;transition:none!important;animation:none!important}#map_container img[src*="/map/reserved_"]{transform:scale(.63)!important}';
+      ? '[id^="map_icons_"],#map_container img[src*="/map/reserved_"]{transform:scale(.6)!important;transform-origin:bottom right!important;transition:none!important;animation:none!important}[id^="map_icons_"] img{width:13px!important;height:13px!important;max-width:13px!important;max-height:13px!important;transform:scale(.6)!important;transform-origin:bottom right!important}#map_container img[src*="/map/reserved_"]{transform:scale(.65)!important}'
+      : '#map_container img[id^="map_icons_"],#map_container img[src*="/map/reserved_"]{transform:scale(.5)!important;transform-origin:bottom right!important;transition:none!important;animation:none!important}#map_container img[src*="/map/reserved_"]{transform:scale(.65)!important}';
     (document.head || document.documentElement).appendChild(st);
   } catch (_) {}
 })();
@@ -179,7 +179,7 @@ const aoshiInstallerMain = () => (function () {
   const mark = () => {
     const when = Number(GM_getValue(K.when, 0)) || 0;
     const pending = ranWhen > 0 && when !== ranWhen;
-    root.dataset.aoshiInstaller = '1'; root.dataset.aoshiInstallerV = '1.8';
+    root.dataset.aoshiInstaller = '1'; root.dataset.aoshiInstallerV = '1.9';
     root.dataset.aoshiUpdated = String(when || ''); root.dataset.aoshiPending = pending ? '1' : '';
     return pending;
   };
