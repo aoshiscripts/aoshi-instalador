@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.6
+// @version      1.7
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -70,9 +70,12 @@ const aoshiInstallerMain = () => (function () {
   const API = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
 
   // Roda o código na página (mesmo contexto de um script instalado direto).
+  // Modelos do Hub guardados no Tampermonkey: valem em todos os mundos (o localStorage é separado por mundo).
+  const SHARED_MODELS = 'aoshi-shared-models';
   function run(code) {
     const s = document.createElement('script');
-    s.textContent = '(function(){\n' + code + '\n})();';
+    let shared = '[]'; try { shared = JSON.stringify(JSON.parse(GM_getValue(SHARED_MODELS, '[]'))); } catch (_) {}
+    s.textContent = 'window.__AOSHI_SHARED_MODELS = ' + shared.replace(/</g, '\\u003c') + ';\n(function(){\n' + code + '\n})();';
     (document.head || document.documentElement).appendChild(s);
     s.remove();
   }
@@ -176,7 +179,7 @@ const aoshiInstallerMain = () => (function () {
   const mark = () => {
     const when = Number(GM_getValue(K.when, 0)) || 0;
     const pending = ranWhen > 0 && when !== ranWhen;
-    root.dataset.aoshiInstaller = '1'; root.dataset.aoshiInstallerV = '1.6';
+    root.dataset.aoshiInstaller = '1'; root.dataset.aoshiInstallerV = '1.7';
     root.dataset.aoshiUpdated = String(when || ''); root.dataset.aoshiPending = pending ? '1' : '';
     return pending;
   };
@@ -211,6 +214,10 @@ const aoshiInstallerMain = () => (function () {
 
   mark();
   document.addEventListener('aoshi-installer-check', () => check(true));
+  // O Hub salvou/excluiu um modelo: guarda a lista para todos os mundos.
+  document.addEventListener('aoshi-shared-models-save', () => {
+    try { const v = root.dataset.aoshiSharedModels || '[]'; if (Array.isArray(JSON.parse(v))) GM_setValue(SHARED_MODELS, v); delete root.dataset.aoshiSharedModels; root.dataset.aoshiSharedOk = String(Date.now()); } catch (_) {}
+  });
   // Hub aberto: conferida rápida e silenciosa (no máximo uma por minuto).
   document.addEventListener('aoshi-installer-peek', () => { if (Date.now() - Number(GM_getValue(K.at, 0)) > 60000) { GM_setValue(K.at, 0); check(false); } });
   unpack(GM_getValue(K.code, '')).then(code => { if (code) run(code); })
