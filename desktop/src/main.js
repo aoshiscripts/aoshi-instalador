@@ -502,8 +502,35 @@ app.on('before-quit', e => {
   Promise.all(parts.map(p => { const ses = session.fromPartition('persist:aoshi-' + p); return Promise.all([ses.clearStorageData(), ses.clearCache()]).catch(() => {}); })).finally(() => app.quit());
 });
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+// Windows guarda os ícones num cache e continua mostrando o antigo depois de uma atualização.
+// Na primeira vez que cada versão abre: regrava os atalhos (área de trabalho, menu Iniciar e barra de tarefas)
+// apontando para o ícone do programa e manda o Windows recarregar o cache de ícones.
+function refreshWindowsIcons() {
+  if (process.platform !== 'win32' || !app.isPackaged || store.iconsFor === app.getVersion()) return;
+  store.iconsFor = app.getVersion(); save();
+  const exe = process.execPath, roam = process.env.APPDATA || '';
+  const links = [
+    path.join(app.getPath('desktop'), 'Aoshi Pro.lnk'),
+    path.join(roam, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Aoshi Pro.lnk'),
+    path.join(roam, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar', 'Aoshi Pro.lnk')
+  ];
+  links.forEach(lnk => {
+    try {
+      if (!fs.existsSync(lnk)) return;
+      const cur = shell.readShortcutLink(lnk);
+      if (cur && cur.target && path.resolve(cur.target).toLowerCase() !== path.resolve(exe).toLowerCase()) return; // atalho de outro programa
+      shell.writeShortcutLink(lnk, 'update', { target: exe, icon: exe, iconIndex: 0 });
+    } catch (_) {}
+  });
+  try {
+    const { spawn } = require('child_process');
+    const ie4 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'ie4uinit.exe');
+    if (fs.existsSync(ie4)) spawn(ie4, ['-show'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch (_) {}
+}
 app.whenReady().then(async () => {
   load();
+  refreshWindowsIcons();
   // a sessão sem proxy (e as extensões dela) ficam prontas antes da barra aparecer
   try { await withTimeout(sessionFor(''), 6000); } catch (_) {}
   createWindow();
