@@ -8,7 +8,7 @@
 </head>
 <body>
   <div id="tabbar">
-    <div class="brand">Aoshi <b>Pro</b></div>
+    <div class="brand"><img src="logo.png" alt="">Aoshi <b>Pro</b></div>
     <div id="tabs"></div>
     <button id="add" class="icon" title="Nova aba (Ctrl+T)">+</button>
     <div class="spacer"></div>
@@ -32,7 +32,8 @@
   <div class="modal" id="m-pick" hidden>
     <div class="card">
       <h3 id="pick-title">Nova aba</h3>
-      <div class="hint">Escolha o proxy desta aba. Abas com perfis diferentes têm cookies e login separados.</div>
+      <div class="hint">Escolha o proxy desta aba. Abas com proxies diferentes têm cookies e login separados.</div>
+      <input id="pick-q" placeholder="Filtrar por número, país, endereço…" spellcheck="false">
       <div id="pick-list" class="pick-list"></div>
       <label class="row" id="pick-url-row">Endereço <input id="pick-url" value="https://www.tribalwars.com.br/"></label>
       <div class="actions"><button class="ghost" data-close>Cancelar</button><button id="pick-manage" class="ghost">Gerenciar proxies</button><button id="pick-ok">Abrir</button></div>
@@ -41,11 +42,15 @@
 
   <!-- Perfis de proxy -->
   <div class="modal" id="m-prof" hidden>
-    <div class="card wide">
-      <h3>Perfis de proxy</h3>
-      <div class="hint">Cada perfil tem o seu proxy e os seus cookies. Use um perfil em cada aba.</div>
-      <div id="prof-list"></div>
-      <div class="actions"><button id="prof-add" class="ghost">+ Novo perfil</button><span class="spacer"></span><button class="ghost" data-close>Fechar</button><button id="prof-save">Salvar</button></div>
+    <div class="card wide xwide">
+      <h3>Proxies</h3>
+      <div class="hint">Formato: <b>endereço:porta:usuário:senha</b> (usuário e senha são opcionais). Cada proxy tem os seus cookies: use um em cada aba. Os proxies novos são testados sozinhos: país, IP e latência até o Tribal Wars.</div>
+      <textarea id="px-bulk" rows="4" spellcheck="false" placeholder="Cole uma lista, um proxy por linha:&#10;auto-rh7proxys.com:10000:usuario:senha&#10;auto-rh7proxys.com:10001:usuario:senha"></textarea>
+      <div class="row wrap"><label>Tipo <select id="px-type"><option value="http">HTTP</option><option value="socks5">SOCKS5</option><option value="https">HTTPS</option></select></label><button id="px-bulk-add">Adicionar lista</button><span class="spacer"></span><span id="px-stat" class="hint"></span></div>
+      <div class="row"><input id="px-one" spellcheck="false" placeholder="Adicionar um: endereço:porta:usuário:senha"><button id="px-one-add">Adicionar</button></div>
+      <div class="row wrap px-tools"><b>Lista</b><span id="px-count" class="hint"></span><span class="spacer"></span><input id="px-q" placeholder="Filtrar" spellcheck="false"><button class="ghost" id="px-test-all">Testar todos</button><button class="ghost" id="px-del-bad">Remover os que falharam</button><button class="ghost" id="px-del-all">Excluir todos</button></div>
+      <div id="prof-list" class="px-list"></div>
+      <div class="actions"><span class="hint">As mudanças são salvas na hora.</span><span class="spacer"></span><button data-close>Fechar</button></div>
     </div>
   </div>
 

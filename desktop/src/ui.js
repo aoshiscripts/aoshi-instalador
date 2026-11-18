@@ -68,13 +68,19 @@ function openPick(mode) {
   $('#pick-title').textContent = mode === 'new' ? 'Nova aba' : 'Proxy desta aba';
   $('#pick-ok').textContent = mode === 'new' ? 'Abrir' : 'Aplicar';
   $('#pick-url-row').hidden = mode !== 'new';
+  $('#pick-q').value = '';
   renderPick();
   show('#m-pick', true);
 }
 function renderPick() {
-  const items = [{ id: '', name: 'Sem proxy', color: '#52525b', meta: 'conexão direta' }].concat(profiles.map(p => ({ id: p.id, name: p.name, color: p.color, meta: p.proxy && p.proxy.host ? `${p.proxy.type || 'http'}://${p.proxy.host}:${p.proxy.port}` : 'sem endereço' })));
-  $('#pick-list').innerHTML = items.map(i => `<div class="pick${i.id === pickSel ? ' on' : ''}" data-id="${esc(i.id)}"><span class="dot" style="background:${esc(i.color)}"></span><span class="n">${esc(i.name)}</span><span class="m">${esc(i.meta)}</span></div>`).join('');
+  const q = ($('#pick-q').value || '').trim().toLowerCase();
+  const items = [{ id: '', label: 'Sem proxy', meta: 'conexão direta', html: '<span class="num">—</span><span class="flag none">🖥</span>' }]
+    .concat(profiles.map((p, i) => ({ id: p.id, i, p, label: p.name, meta: `${p.proxy.host}:${p.proxy.port}` })))
+    .filter(it => !q || !it.p || `${it.i + 1} ${it.label} ${it.meta} ${it.p.countryName} ${countryPT(it.p)} ${it.p.country} ${it.p.ip}`.toLowerCase().includes(q));
+  $('#pick-q').hidden = profiles.length < 6;
+  $('#pick-list').innerHTML = items.map(it => `<div class="pick${it.id === pickSel ? ' on' : ''}${it.p && it.p.status === 'bad' ? ' is-bad' : ''}" data-id="${esc(it.id)}">${it.p ? `<span class="num">${it.i + 1}</span>${flagOf(it.p)}` : it.html}<span class="n">${esc(it.label)}</span><span class="m">${esc(it.meta)}</span>${it.p ? latOf(it.p) : ''}</div>`).join('') || '<div class="hint">Nada com esse filtro.</div>';
 }
+$('#pick-q').addEventListener('input', renderPick);
 $('#pick-list').addEventListener('click', e => { const p = e.target.closest('.pick'); if (!p) return; pickSel = p.dataset.id; renderPick(); });
 $('#pick-list').addEventListener('dblclick', () => $('#pick-ok').click());
 $('#pick-ok').onclick = async () => {
@@ -85,40 +91,122 @@ $('#pick-ok').onclick = async () => {
 };
 $('#pick-manage').onclick = () => { show('#m-pick', false); openProfiles(); };
 
-// Perfis de proxy
-let draft = [];
+// ---------- Proxies ----------
+// Lista numerada; cada proxy é um perfil (cookies próprios). Colar uma lista grande: um por linha,
+// endereço:porta:usuário:senha. Os novos são testados sozinhos (país, IP e latência até o Tribal Wars).
 const COLORS = ['#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#eab308', '#3b82f6'];
-function openProfiles() { draft = JSON.parse(JSON.stringify(profiles)); renderProfiles(); show('#m-prof', true); }
-function renderProfiles() {
-  $('#prof-list').innerHTML = (draft.length ? `<div class="prof-head"><span></span><span>Nome</span><span>Tipo</span><span>Endereço</span><span>Porta</span><span>Usuário</span><span>Senha</span><span></span><span></span></div>` : '<div class="hint">Nenhum perfil ainda. Clique em "+ Novo perfil".</div>') +
-    draft.map((p, i) => `<div class="prof" data-i="${i}">
-      <input type="color" data-k="color" value="${esc(p.color || '#8b5cf6')}" title="Cor da aba">
-      <input data-k="name" value="${esc(p.name)}" placeholder="Nome">
-      <select data-k="type">${['http', 'https', 'socks5'].map(t => `<option value="${t}"${(p.proxy.type || 'http') === t ? ' selected' : ''}>${t.toUpperCase()}</option>`).join('')}</select>
-      <input data-k="host" value="${esc(p.proxy.host)}" placeholder="ip ou endereço">
-      <input data-k="port" value="${esc(p.proxy.port)}" placeholder="porta" inputmode="numeric">
-      <input data-k="user" value="${esc(p.proxy.user)}" placeholder="usuário (opcional)">
-      <input data-k="pass" type="password" value="${esc(p.proxy.pass)}" placeholder="senha (opcional)">
-      <button class="ghost" data-test="${i}" title="Mostra o IP que o site vê por este proxy">Testar</button>
-      <button class="ghost" data-del="${i}" title="Excluir">✕</button>
-      <div class="res" data-res="${i}"></div></div>`).join('');
+const testing = new Set();
+let regionPT = null; try { regionPT = new Intl.DisplayNames(['pt-BR'], { type: 'region' }); } catch (_) {}
+const countryPT = p => { const cc = (p && p.country || '').toUpperCase(); if (/^[A-Z]{2}$/.test(cc)) { try { return regionPT ? regionPT.of(cc) : (p.countryName || cc); } catch (_) {} } return p && p.countryName || ''; };
+const flagOf = p => p && /^[a-z]{2}$/.test(p.country || '') ? `<img class="flag" src="flags/${p.country}.svg" alt="${esc(p.country.toUpperCase())}" title="${esc(countryPT(p))}">` : '<span class="flag none" title="País ainda não detectado">🌐</span>';
+const latOf = p => {
+  if (!p) return '';
+  if (testing.has(p.id)) return '<span class="lat t">testando…</span>';
+  if (p.status === 'bad') return `<span class="lat bad" title="${esc(p.error || '')}">falhou</span>`;
+  if (p.status === 'ok') return p.latency == null ? '<span class="lat ok">ok</span>' : `<span class="lat ${p.latency < 200 ? 'ok' : p.latency < 500 ? 'mid' : 'slow'}">${p.latency} ms</span>`;
+  return '<span class="lat">—</span>';
+};
+function parseProxy(line, type) {
+  let s = String(line || '').trim();
+  if (!s || s.startsWith('#')) return null;
+  let t = type || 'http';
+  const m = s.match(/^(https?|socks5h?|socks4?):\/\//i);
+  if (m) { t = /^socks/i.test(m[1]) ? 'socks5' : m[1].toLowerCase(); s = s.slice(m[0].length); }
+  let host, port, user = '', pass = '';
+  if (s.includes('@')) { const at = s.lastIndexOf('@'); const cred = s.slice(0, at), hp = s.slice(at + 1); [user, pass = ''] = cred.split(':'); [host, port] = hp.split(':'); }
+  else { const parts = s.split(':'); if (parts.length < 2) return null; [host, port] = parts; user = parts[2] || ''; pass = parts.slice(3).join(':'); }
+  host = String(host || '').trim(); port = Number(port);
+  if (!host || !(port > 0 && port < 65536)) return null;
+  return { type: t, host, port, user: user.trim(), pass: pass.trim() };
 }
-$('#prof-list').addEventListener('input', e => {
-  const row = e.target.closest('.prof'); if (!row) return;
-  const p = draft[+row.dataset.i], k = e.target.dataset.k;
-  if (k === 'name' || k === 'color') p[k] = e.target.value; else p.proxy[k] = e.target.value;
+let saveTimer = 0;
+const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(async () => { profiles = await aoshi.saveProfiles(profiles); renderProfiles(); renderTabs(); }, 250); };
+function addProxies(text, type) {
+  const have = new Set(profiles.map(p => `${p.proxy.host}:${p.proxy.port}:${p.proxy.user}`.toLowerCase()));
+  let added = 0, dup = 0, bad = 0; const fresh = [];
+  String(text || '').split(/\r?\n/).forEach(line => {
+    if (!line.trim()) return;
+    const px = parseProxy(line, type); if (!px) { bad++; return; }
+    const k = `${px.host}:${px.port}:${px.user}`.toLowerCase(); if (have.has(k)) { dup++; return; }
+    have.add(k);
+    const n = profiles.length + 1;
+    const p = { id: (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2)), name: `Proxy ${n}`, color: COLORS[(n - 1) % COLORS.length], proxy: px, status: '', latency: null };
+    profiles.push(p); fresh.push(p); added++;
+  });
+  $('#px-stat').textContent = `${added} adicionado(s)` + (dup ? ` · ${dup} repetido(s)` : '') + (bad ? ` · ${bad} linha(s) fora do formato` : '');
+  saveSoon(); renderProfiles();
+  testList(fresh);
+  return added;
+}
+// testa vários ao mesmo tempo (6 por vez)
+let testQueue = [], running = 0;
+function testList(list) {
+  list.forEach(p => { if (!testQueue.includes(p.id) && !testing.has(p.id)) testQueue.push(p.id); });
+  pump();
+}
+function pump() {
+  while (running < 6 && testQueue.length) {
+    const id = testQueue.shift(), p = profiles.find(x => x.id === id); if (!p) continue;
+    running++; testing.add(id); renderRow(id);
+    aoshi.testProfile(p).then(r => {
+      const cur = profiles.find(x => x.id === id); if (!cur) return;
+      Object.assign(cur, r.ok ? { status: 'ok', ip: r.ip, country: r.country || cur.country || '', countryName: r.countryName || cur.countryName || '', latency: r.latency, error: '' } : { status: 'bad', latency: null, error: r.message || 'não conectou' }, { testedAt: Date.now() });
+    }).catch(() => {}).finally(() => {
+      running--; testing.delete(id); renderRow(id); updateStat(); saveSoon(); pump();
+    });
+  }
+  updateStat();
+}
+let wasTesting = false;
+function updateStat() {
+  const left = testQueue.length + running;
+  if (left) { $('#px-stat').textContent = `Testando… faltam ${left}`; wasTesting = true; }
+  else if (wasTesting) { wasTesting = false; const ok = profiles.filter(p => p.status === 'ok').length, bad = profiles.filter(p => p.status === 'bad').length; $('#px-stat').textContent = `Teste concluído: ${ok} funcionando, ${bad} com falha.`; }
+  const ok = profiles.filter(p => p.status === 'ok').length, bad = profiles.filter(p => p.status === 'bad').length;
+  $('#px-count').textContent = `${profiles.length} proxies · ${ok} funcionando · ${bad} com falha`;
+}
+const rowHTML = (p, i) => `<div class="pxr${p.status === 'bad' ? ' is-bad' : ''}" data-id="${esc(p.id)}">
+  <span class="num">${i + 1}</span>${flagOf(p)}
+  <input class="nm" data-k="name" value="${esc(p.name)}" title="Nome">
+  <span class="addr" title="${esc(p.proxy.type)}://${esc(p.proxy.host)}:${esc(p.proxy.port)}">${esc(p.proxy.host)}:${esc(p.proxy.port)}</span>
+  <span class="usr">${p.proxy.user ? esc(p.proxy.user) : '<i>sem login</i>'}</span>
+  <span class="cty" title="${esc(p.ip ? 'IP visto pelos sites: ' + p.ip : '')}">${esc(countryPT(p))}</span>
+  ${latOf(p)}
+  <button class="ghost sm" data-test title="Testar de novo">Testar</button><button class="ghost sm" data-del title="Excluir">✕</button></div>`;
+function renderProfiles() {
+  const q = ($('#px-q').value || '').trim().toLowerCase();
+  const list = profiles.map((p, i) => [p, i]).filter(([p, i]) => !q || `${i + 1} ${p.name} ${p.proxy.host}:${p.proxy.port} ${p.proxy.user} ${p.countryName} ${countryPT(p)} ${p.country} ${p.ip}`.toLowerCase().includes(q));
+  $('#prof-list').innerHTML = profiles.length ? `<div class="pxr head"><span>#</span><span></span><span>Nome</span><span>Endereço</span><span>Usuário</span><span>País</span><span>Latência</span><span></span><span></span></div>` + list.map(([p, i]) => rowHTML(p, i)).join('') : '<div class="hint empty">Nenhum proxy ainda. Cole uma lista acima ou adicione um.</div>';
+  updateStat();
+}
+function renderRow(id) {
+  const el = document.querySelector(`.pxr[data-id="${CSS.escape(id)}"]`); if (!el) return;
+  const i = profiles.findIndex(p => p.id === id); if (i < 0) return;
+  el.outerHTML = rowHTML(profiles[i], i);
+}
+function openProfiles() { renderProfiles(); show('#m-prof', true); }
+$('#px-bulk-add').onclick = () => { const n = addProxies($('#px-bulk').value, $('#px-type').value); if (n) $('#px-bulk').value = ''; };
+$('#px-one-add').onclick = () => { const v = $('#px-one').value; if (!parseProxy(v, 'http')) { $('#px-stat').textContent = 'Formato: endereço:porta:usuário:senha'; return; } if (addProxies(v, $('#px-type').value)) $('#px-one').value = ''; };
+$('#px-one').addEventListener('keydown', e => { if (e.key === 'Enter') $('#px-one-add').click(); });
+$('#px-q').addEventListener('input', renderProfiles);
+$('#px-test-all').onclick = () => testList(profiles);
+$('#px-del-bad').onclick = () => { const n = profiles.filter(p => p.status === 'bad').length; if (!n) { $('#px-stat').textContent = 'Nenhum proxy com falha.'; return; } profiles = profiles.filter(p => p.status !== 'bad'); $('#px-stat').textContent = `${n} removido(s).`; saveSoon(); renderProfiles(); };
+$('#px-del-all').onclick = e => {
+  const b = e.currentTarget;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar: excluir todos'; setTimeout(() => { b.dataset.confirm = ''; b.textContent = 'Excluir todos'; }, 4000); return; }
+  b.dataset.confirm = ''; b.textContent = 'Excluir todos'; testQueue = []; profiles = []; saveSoon(); renderProfiles();
+};
+$('#prof-list').addEventListener('change', e => {
+  const row = e.target.closest('.pxr'); if (!row || e.target.dataset.k !== 'name') return;
+  const p = profiles.find(x => x.id === row.dataset.id); if (!p) return;
+  p.name = e.target.value.trim().slice(0, 40) || p.name; saveSoon();
 });
-$('#prof-list').addEventListener('click', async e => {
-  const d = e.target.closest('[data-del]'); if (d) { draft.splice(+d.dataset.del, 1); renderProfiles(); return; }
-  const t = e.target.closest('[data-test]'); if (!t) return;
-  const i = +t.dataset.test, res = document.querySelector(`[data-res="${i}"]`);
-  res.className = 'res'; res.textContent = 'Testando…';
-  const r = await aoshi.testProfile(draft[i]);
-  res.className = 'res ' + (r.ok ? 'ok' : 'bad');
-  res.textContent = r.ok ? `Funcionando · o site vê o IP ${r.ip}` : `Não conectou: ${r.message}`;
+$('#prof-list').addEventListener('click', e => {
+  const row = e.target.closest('.pxr'); if (!row || row.classList.contains('head')) return;
+  const id = row.dataset.id;
+  if (e.target.closest('[data-del]')) { profiles = profiles.filter(p => p.id !== id); testQueue = testQueue.filter(x => x !== id); saveSoon(); renderProfiles(); return; }
+  if (e.target.closest('[data-test]')) { const p = profiles.find(x => x.id === id); if (p) testList([p]); }
 });
-$('#prof-add').onclick = () => { draft.push({ id: '', name: `Proxy ${draft.length + 1}`, color: COLORS[draft.length % COLORS.length], proxy: { type: 'http', host: '', port: '', user: '', pass: '' } }); renderProfiles(); };
-$('#prof-save').onclick = async () => { profiles = await aoshi.saveProfiles(draft); show('#m-prof', false); renderTabs(); };
 $('#btn-profiles').onclick = openProfiles;
 
 // ---------- Configurações ----------

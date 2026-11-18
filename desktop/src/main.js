@@ -213,7 +213,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: b.width || 1400, height: b.height || 900, x: b.x, y: b.y, minWidth: 800, minHeight: 500,
     title: 'Aoshi Pro', backgroundColor: '#121216', autoHideMenuBar: true, show: false,
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'ui-preload.js'), contextIsolation: true, sandbox: false }
   });
   Menu.setApplicationMenu(null);
@@ -254,25 +254,53 @@ ipcMain.handle('tab:nav', (_, id, what, arg) => {
   else if (what === 'zoom') { if (arg === 0) { t.zoom = null; wc.setZoomFactor((Number(S().zoom) || 100) / 100); pushTabs(); } else zoomTab(t, arg); }
   else if (what === 'devtools') wc.toggleDevTools();
 });
+const proxyKey = p => p && p.proxy ? [p.proxy.type, p.proxy.host, p.proxy.port, p.proxy.user, p.proxy.pass].join('|') : '';
 ipcMain.handle('profiles:save', (_, list) => {
-  store.profiles = (Array.isArray(list) ? list : []).map(p => ({ id: p.id || crypto.randomUUID(), name: String(p.name || 'Proxy').slice(0, 40), color: p.color || '#8b5cf6', proxy: { type: p.proxy?.type || 'http', host: String(p.proxy?.host || '').trim(), port: Number(p.proxy?.port) || '', user: String(p.proxy?.user || ''), pass: String(p.proxy?.pass || '') } }));
+  const before = new Map(store.profiles.map(p => [p.id, proxyKey(p)]));
+  store.profiles = (Array.isArray(list) ? list : []).slice(0, 5000).map(p => ({
+    id: p.id || crypto.randomUUID(), name: String(p.name || 'Proxy').slice(0, 40), color: p.color || '#8b5cf6',
+    proxy: { type: p.proxy?.type || 'http', host: String(p.proxy?.host || '').trim(), port: Number(p.proxy?.port) || '', user: String(p.proxy?.user || ''), pass: String(p.proxy?.pass || '') },
+    // resultado do último teste: país, IP visto pelos sites e latência até o Tribal Wars
+    status: ['ok', 'bad'].includes(p.status) ? p.status : '', ip: String(p.ip || '').slice(0, 64), country: String(p.country || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 2),
+    countryName: String(p.countryName || '').slice(0, 60), latency: Number.isFinite(Number(p.latency)) && p.latency !== null && p.latency !== '' ? Math.round(Number(p.latency)) : null,
+    error: String(p.error || '').slice(0, 160), testedAt: Number(p.testedAt) || 0
+  }));
   save(); ui('profiles', { profiles: store.profiles });
-  // abas abertas com perfil alterado: aplica o proxy novo
-  tabs.forEach(t => { if (t.profileId) sessionFor(t.profileId).then(() => t.view.webContents.reload()); });
+  // só as abas cujo proxy mudou de verdade recarregam (salvar o resultado de um teste não mexe nelas)
+  tabs.forEach(t => { if (!t.profileId) return; const p = profileOf(t.profileId); if (p && before.get(p.id) !== proxyKey(p)) sessionFor(t.profileId).then(() => t.view.webContents.reload()); });
   return store.profiles;
 });
-// Testa o proxy: abre uma sessão temporária com ele e pergunta o IP visto pela internet.
+// Testa o proxy numa sessão temporária: IP e país vistos pela internet e latência até o Tribal Wars.
+// Vários testes podem rodar ao mesmo tempo (cada um com a sua sessão e a sua senha).
 ipcMain.handle('profiles:test', async (_, p) => {
-  const ses = session.fromPartition('aoshi-test-' + Date.now());
   const rules = proxyRules(p);
-  await ses.setProxy(rules ? { proxyRules: rules } : { mode: 'direct' });
-  testCreds = p && p.proxy ? p.proxy : null;
+  if (!rules) return { ok: false, message: 'sem endereço' };
+  const ses = session.fromPartition('aoshi-test-' + crypto.randomUUID());
+  await ses.setProxy({ proxyRules: rules });
+  const key = `${String(p.proxy.host).toLowerCase()}:${Number(p.proxy.port)}`;
+  if (p.proxy.user) testCreds.set(key, p.proxy);
+  const get = async (url, ms, opt) => {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+    try { return await ses.fetch(url, Object.assign({ cache: 'no-store', signal: ctl.signal }, opt || {})); } finally { clearTimeout(timer); }
+  };
   try {
-    const r = await ses.fetch('https://api.ipify.org?format=json', { cache: 'no-store' });
-    const j = await r.json();
-    return { ok: true, ip: j.ip };
-  } catch (e) { return { ok: false, message: e.message || 'sem resposta' }; }
-  finally { testCreds = null; }
+    let geo = null, lastErr = null;
+    for (const src of [
+      ['https://ipwho.is/?fields=success,ip,country,country_code', j => j.success !== false && j.ip ? { ip: j.ip, cc: j.country_code, name: j.country } : null],
+      ['https://ipapi.co/json/', j => j.ip ? { ip: j.ip, cc: j.country_code, name: j.country_name } : null],
+      ['https://api.ipify.org?format=json', j => j.ip ? { ip: j.ip } : null]
+    ]) {
+      try { geo = src[1](await (await get(src[0], 12000)).json()); if (geo) break; } catch (e) { lastErr = e; if (/ERR_(PROXY|TUNNEL|NO_SUPPORTED_PROXIES)|407|aborted/i.test(String(e && e.message))) break; }
+    }
+    if (!geo) throw lastErr || new Error('sem resposta');
+    // latência: ida e volta até o Tribal Wars por este proxy (melhor de 2)
+    let best = Infinity;
+    for (let i = 0; i < 2; i++) { const t0 = performance.now(); try { await get('https://www.tribalwars.com.br/favicon.ico', 8000, { method: 'HEAD' }); best = Math.min(best, performance.now() - t0); } catch (_) {} }
+    return { ok: true, ip: geo.ip, country: String(geo.cc || '').toLowerCase(), countryName: geo.name || '', latency: Number.isFinite(best) ? Math.round(best) : null };
+  } catch (e) {
+    const m = String(e && e.message || 'sem resposta');
+    return { ok: false, message: /aborted/i.test(m) ? 'não respondeu em 12 s' : /407/.test(m) ? 'usuário ou senha recusados' : m.replace(/^net::/, '') };
+  } finally { testCreds.delete(key); }
 });
 ipcMain.handle('token:set', async (_, token) => {
   token = String(token || '').trim();
@@ -332,12 +360,12 @@ ipcMain.handle('page:info', () => ({ when: store.when, version: app.getVersion()
 ipcMain.on('page:models', (_, json) => { try { if (Array.isArray(JSON.parse(json))) { store.sharedModels = json; save(); } } catch (_) {} });
 
 // Proxy com usuário e senha.
-let testCreds = null;
+const testCreds = new Map(); // host:porta → usuário e senha de um teste em andamento
 app.on('login', (event, wc, details, authInfo, callback) => {
   if (!authInfo.isProxy) return;
-  let creds = testCreds;
+  let creds = testCreds.get(`${String(authInfo.host).toLowerCase()}:${Number(authInfo.port)}`) || null;
   if (!creds && wc) { const t = tabs.find(x => x.view.webContents === wc); const p = t && profileOf(t.profileId); creds = p && p.proxy; }
-  if (!creds && details && details.url) { /* pedidos sem aba (ex.: favicon): usa o primeiro perfil com esse host */ const p = store.profiles.find(x => x.proxy && authInfo.host === x.proxy.host); creds = p && p.proxy; }
+  if (!creds && details && details.url) { /* pedidos sem aba (ex.: favicon): usa o primeiro perfil com esse host */ const p = store.profiles.find(x => x.proxy && authInfo.host === x.proxy.host && Number(authInfo.port) === Number(x.proxy.port)) || store.profiles.find(x => x.proxy && authInfo.host === x.proxy.host); creds = p && p.proxy; }
   if (creds && creds.user) { event.preventDefault(); callback(creds.user, creds.pass || ''); }
 });
 
