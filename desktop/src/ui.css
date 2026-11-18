@@ -127,3 +127,15 @@ button.sm { padding:3px 8px; font-size:11px; }
 #pick-q { width:100%; }
 .pick-list { max-height:52vh; overflow:auto; }
 .pick .lat { margin-left:10px; min-width:56px; text-align:right; }
+
+/* ---------- Extensões ---------- */
+#ext-actions { display:flex; align-items:center; gap:2px; }
+browser-action-list::part(action) { width:28px; height:28px; border-radius:7px; background-size:18px; background-position:center; background-repeat:no-repeat; }
+browser-action-list::part(action):hover { background-color:#2a2a33; }
+browser-action-list::part(badge) { font-size:9px; }
+#btn-ext { font-size:15px; }
+.ext-list { display:flex; flex-direction:column; gap:5px; margin-top:6px; }
+.ext { display:flex; align-items:center; gap:9px; padding:7px 10px; border:1px solid var(--line); border-radius:9px; }
+.ext img { width:20px; height:20px; }
+.ext .n { font-weight:600; }
+.ext .v { color:var(--meta); font-size:11px; margin-left:auto; margin-right:8px; }

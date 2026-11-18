@@ -1,6 +1,8 @@
 // Ponte entre a barra (ui.html) e o processo principal.
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
+// <browser-action-list>: botões das extensões na barra
+try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (e) { console.warn('[extensões]', e && e.message); }
 contextBridge.exposeInMainWorld('aoshi', {
   on: fn => ipcRenderer.on('ui', (_, ch, data) => fn(ch, data)),
   newTab: (profileId, url) => ipcRenderer.invoke('tab:new', profileId, url),
@@ -24,5 +26,9 @@ contextBridge.exposeInMainWorld('aoshi', {
   openDownloads: f => ipcRenderer.invoke('downloads:open', f),
   clearToken: () => ipcRenderer.invoke('token:clear'),
   checkAppUpdate: () => ipcRenderer.invoke('app:check-update'),
-  openReleases: () => ipcRenderer.invoke('app:open-releases')
+  openReleases: () => ipcRenderer.invoke('app:open-releases'),
+  extList: () => ipcRenderer.invoke('ext:list'),
+  extStore: () => ipcRenderer.invoke('ext:store'),
+  extRemove: id => ipcRenderer.invoke('ext:remove', id),
+  extLoadFolder: () => ipcRenderer.invoke('ext:load-folder')
 });

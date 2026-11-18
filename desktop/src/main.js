@@ -2,7 +2,11 @@
 // Abas (cada uma com perfil de proxy e cookies próprios), Aoshi Pro injetado nas páginas do Tribal Wars,
 // script baixado do repositório privado com o token de leitura do usuário, e atualização automática.
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, session, safeStorage, Menu, shell, dialog } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, session, safeStorage, Menu, MenuItem, shell, dialog } = require('electron');
+// Extensões do Chrome: API do Chrome (abas, popups, botão na barra) e instalação pela Chrome Web Store.
+let ECE = null, CWS = null;
+try { ECE = require('electron-chrome-extensions').ElectronChromeExtensions; } catch (e) { console.warn('[extensões] sem electron-chrome-extensions', e.message); }
+try { CWS = require('electron-chrome-web-store'); } catch (e) { console.warn('[extensões] sem electron-chrome-web-store', e.message); }
 const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
@@ -121,6 +125,61 @@ function hardenSession(ses) {
 }
 const webrtcPolicy = () => S().webrtcProxy ? 'disable_non_proxied_udp' : 'default';
 
+// ---------- Extensões ----------
+// Cada proxy é uma sessão separada; as extensões ficam numa pasta só e são carregadas em todas as sessões.
+// Instalar numa aba (Chrome Web Store) carrega a extensão nas outras sessões abertas na hora.
+const EXT_DIR = () => path.join(app.getPath('userData'), 'Extensions');
+const extOf = new Map();     // partição → ElectronChromeExtensions
+const sesOf = new Map();     // partição → sessão
+const loadExt = async (ses, p) => (ses.extensions && ses.extensions.loadExtension ? ses.extensions.loadExtension(p, { allowFileAccess: false }) : ses.loadExtension(p, { allowFileAccess: false }));
+const getExt = (ses, id) => (ses.extensions && ses.extensions.getExtension ? ses.extensions.getExtension(id) : ses.getExtension(id));
+const allExt = ses => (ses.extensions && ses.extensions.getAllExtensions ? ses.extensions.getAllExtensions() : ses.getAllExtensions());
+const removeExt = (ses, id) => (ses.extensions && ses.extensions.removeExtension ? ses.extensions.removeExtension(id) : ses.removeExtension(id));
+let syncing = false;
+function onExtLoaded(fromPart, ext) {
+  if (syncing || !ext || !ext.path || !String(ext.path).startsWith(EXT_DIR())) return;
+  syncing = true;
+  Promise.all([...sesOf].filter(([p]) => p !== fromPart).map(([, s]) => getExt(s, ext.id) ? null : loadExt(s, ext.path).catch(() => null)))
+    .finally(() => { syncing = false; ui('extensions', { list: extList() }); });
+}
+function extList() {
+  const s = sesOf.get('persist:aoshi-direto') || [...sesOf.values()][0];
+  if (!s) return [];
+  return allExt(s).filter(e => String(e.path || '').startsWith(EXT_DIR())).map(e => ({ id: e.id, name: e.name, version: e.version || (e.manifest && e.manifest.version) || '' }));
+}
+async function setupExtensions(ses, part, profileId) {
+  sesOf.set(part, ses);
+  if (!ECE) return;
+  try {
+    const ext = new ECE({
+      session: ses,
+      // abas e janelas que as extensões pedem viram abas deste mesmo proxy
+      createTab: async details => { const t = await newTab(profileId, details.url || S().home || HOME, details.active !== false); return [t.view.webContents, win]; },
+      selectTab: wc => { const t = tabs.find(x => x.view.webContents === wc); if (t) { activeId = t.id; layout(); pushTabs(); } },
+      removeTab: wc => { const t = tabs.find(x => x.view.webContents === wc); if (t) closeTab(t.id); },
+      createWindow: async details => { for (const u of [].concat(details.url || S().home || HOME)) await newTab(profileId, u, true); return win; },
+      removeWindow: () => {}
+    });
+    extOf.set(part, ext);
+    const onLoad = (_, e) => onExtLoaded(part, e);
+    (ses.extensions && ses.extensions.on ? ses.extensions : ses).on('extension-loaded', onLoad);
+    // atualização das extensões fica em segundo plano (não segura a abertura das abas)
+    if (CWS) await withTimeout(CWS.installChromeWebStore({
+      session: ses, extensionsPath: EXT_DIR(), autoUpdate: false, allowUnpackedExtensions: true,
+      beforeInstall: async d => {
+        const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Adicionar extensão', 'Cancelar'], defaultId: 0, cancelId: 1, title: 'Aoshi Pro', message: `Adicionar "${d.localizedName}"?`, detail: 'A extensão vai valer em todas as abas, com qualquer proxy.', icon: d.icon });
+        return { action: r.response === 0 ? 'allow' : 'deny' };
+      }
+    }), 8000);
+    if (part === 'persist:aoshi-direto' && CWS.updateExtensions && !extUpdTimer) {
+      const upd = () => CWS.updateExtensions(ses).catch(() => {});
+      setTimeout(upd, 60000); extUpdTimer = setInterval(upd, 5 * 3600000);
+    }
+  } catch (e) { console.warn('[extensões]', e); }
+}
+let extUpdTimer = null;
+const withTimeout = (pr, ms) => Promise.race([pr, new Promise(r => setTimeout(r, ms))]);
+
 const prepared = new Set();
 async function sessionFor(profileId) {
   const part = 'persist:aoshi-' + (profileId || 'direto');
@@ -129,6 +188,7 @@ async function sessionFor(profileId) {
     prepared.add(part);
     ses.setUserAgent(chromeUA());
     hardenSession(ses);
+    await setupExtensions(ses, part, profileId || '');
   }
   const rules = proxyRules(profileOf(profileId));
   await ses.setProxy(rules ? { proxyRules: rules, proxyBypassRules: '<local>' } : { mode: 'direct' });
@@ -152,18 +212,39 @@ function layout() {
 }
 function tabInfo(t) {
   const wc = t.view.webContents, p = profileOf(t.profileId);
-  return { zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
+  return { wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
 }
-function pushTabs() { ui('tabs', { tabs: tabs.map(tabInfo), active: activeId }); persistTabs(); }
+function pushTabs() { ui('tabs', { tabs: tabs.map(tabInfo), active: activeId }); persistTabs(); selectExtTab(); }
+let lastSel = null;
+function selectExtTab() {
+  const t = tabs.find(x => x.id === activeId); if (!t || lastSel === t.id) return; lastSel = t.id;
+  try { const e = extOf.get('persist:aoshi-' + (t.profileId || 'direto')); e && e.selectTab(t.view.webContents); } catch (_) {}
+}
 function persistTabs() { store.tabs = tabs.map(t => ({ profileId: t.profileId || '', url: t.view.webContents.getURL() || HOME })); save(); }
 
 async function newTab(profileId, url, activate = true) {
   const ses = await sessionFor(profileId);
-  const view = new WebContentsView({ webPreferences: { session: ses, contextIsolation: true, sandbox: false, preload: path.join(__dirname, 'preload.js'), spellcheck: false } });
+  // sandbox ligado: necessário para a API das extensões nas páginas
+  const view = new WebContentsView({ webPreferences: { session: ses, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), spellcheck: false } });
   const t = { id: crypto.randomUUID(), profileId: profileId || '', view };
   tabs.push(t);
   win.contentView.addChildView(view);
   const wc = view.webContents;
+  const ext = extOf.get('persist:aoshi-' + (profileId || 'direto'));
+  try { ext && ext.addTab(wc, win); } catch (_) {}
+  // botão direito: itens das extensões + básicos
+  wc.on('context-menu', (_, params) => {
+    const menu = new Menu();
+    try { (ext ? ext.getContextMenuItems(wc, params) : []).forEach(i => menu.append(i)); } catch (_) {}
+    if (menu.items.length) menu.append(new MenuItem({ type: 'separator' }));
+    if (params.linkURL) menu.append(new MenuItem({ label: 'Abrir link em nova aba', click: () => newTab(t.profileId, params.linkURL, true) }));
+    if (params.isEditable) { menu.append(new MenuItem({ label: 'Recortar', role: 'cut' })); menu.append(new MenuItem({ label: 'Colar', role: 'paste' })); }
+    if (params.selectionText || params.isEditable) menu.append(new MenuItem({ label: 'Copiar', role: 'copy' }));
+    menu.append(new MenuItem({ label: 'Voltar', enabled: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), click: () => wc.navigationHistory?.goBack ? wc.navigationHistory.goBack() : wc.goBack() }));
+    menu.append(new MenuItem({ label: 'Recarregar', click: () => wc.reload() }));
+    menu.append(new MenuItem({ label: 'Inspecionar', click: () => wc.inspectElement(params.x, params.y) }));
+    menu.popup({ window: win });
+  });
   // WebRTC só pelo proxy: o site não descobre o IP real por ele
   try { wc.setWebRTCIPHandlingPolicy(webrtcPolicy()); } catch (_) {}
   wc.on('did-finish-load', () => { if (t.zoom == null) wc.setZoomFactor((Number(S().zoom) || 100) / 100); });
@@ -210,6 +291,7 @@ async function setTabProfile(id, profileId) {
 
 function createWindow() {
   const b = store.win || {};
+  try { if (ECE && ECE.handleCRXProtocol) ECE.handleCRXProtocol(session.defaultSession); } catch (e) { console.warn('[extensões] crx', e.message); }
   win = new BrowserWindow({
     width: b.width || 1400, height: b.height || 900, x: b.x, y: b.y, minWidth: 800, minHeight: 500,
     title: 'Aoshi Pro', backgroundColor: '#121216', autoHideMenuBar: true, show: false,
@@ -241,7 +323,7 @@ function createWindow() {
 // ---------- Mensagens da barra (ui.html) ----------
 ipcMain.handle('tab:new', (_, profileId, url) => newTab(profileId, url).then(() => true));
 ipcMain.handle('tab:close', (_, id) => closeTab(id));
-ipcMain.handle('tab:activate', (_, id) => { activeId = id; layout(); pushTabs(); });
+ipcMain.handle('tab:activate', (_, id) => { activeId = id; layout(); pushTabs(); selectExtTab(); });
 ipcMain.handle('tab:profile', (_, id, profileId) => setTabProfile(id, profileId));
 ipcMain.handle('tab:nav', (_, id, what, arg) => {
   const t = tabs.find(x => x.id === id); if (!t) return; const wc = t.view.webContents;
@@ -312,6 +394,33 @@ ipcMain.handle('token:set', async (_, token) => {
   return { ok: true, version: versionOf(r.code) };
 });
 ipcMain.handle('code:check', () => checkCode(true));
+ipcMain.handle('ext:list', () => extList());
+ipcMain.handle('ext:store', () => newTab((tabs.find(x => x.id === activeId) || {}).profileId || '', 'https://chromewebstore.google.com/category/extensions', true).then(() => true));
+ipcMain.handle('ext:remove', async (_, id) => {
+  const primary = sesOf.get('persist:aoshi-direto') || (await sessionFor(''));
+  try { if (CWS && CWS.uninstallExtension) await CWS.uninstallExtension(id, { session: primary, extensionsPath: EXT_DIR() }); } catch (e) { console.warn(e); }
+  sesOf.forEach(s => { try { if (getExt(s, id)) removeExt(s, id); } catch (_) {} });
+  // pasta descompactada que não veio da Web Store
+  try { fs.readdirSync(EXT_DIR()).forEach(d => { const m = path.join(EXT_DIR(), d, 'manifest.json'); if (d === id || (fs.existsSync(m) && JSON.parse(fs.readFileSync(m, 'utf8')).__aoshiId === id)) fs.rmSync(path.join(EXT_DIR(), d), { recursive: true, force: true }); }); } catch (_) {}
+  ui('extensions', { list: extList() });
+  return extList();
+});
+// extensão descompactada (pasta com manifest.json): copia para a pasta das extensões e carrega em todas as sessões
+ipcMain.handle('ext:load-folder', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Escolha a pasta da extensão (com o manifest.json)', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false };
+  const src = r.filePaths[0];
+  if (!fs.existsSync(path.join(src, 'manifest.json'))) return { ok: false, message: 'essa pasta não tem manifest.json' };
+  const dest = path.join(EXT_DIR(), 'unpacked-' + path.basename(src).replace(/[^\w.-]+/g, '_'));
+  fs.mkdirSync(EXT_DIR(), { recursive: true });
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.cpSync(src, dest, { recursive: true });
+  if (!prepared.size) await sessionFor('');
+  let loaded = null, err = null;
+  for (const s of sesOf.values()) { try { const e = await loadExt(s, dest); loaded = loaded || e; } catch (e) { err = e; } }
+  ui('extensions', { list: extList() });
+  return loaded ? { ok: true, name: loaded.name } : { ok: false, message: err ? err.message : 'não carregou' };
+});
 ipcMain.handle('settings:get', async () => {
   let size = 0; try { for (const part of new Set(['direto'].concat(store.profiles.map(p => p.id)))) size += await session.fromPartition('persist:aoshi-' + part).getCacheSize(); } catch (_) {}
   return { settings: S(), version: app.getVersion(), script: versionOf(code()), scriptWhen: store.when, hasToken: !!decToken(store.token), downloadsDefault: app.getPath('downloads'), cacheMB: Math.round(size / 1048576), profiles: store.profiles.map(p => ({ id: p.id, name: p.name })) };
@@ -392,8 +501,10 @@ app.on('before-quit', e => {
   Promise.all(parts.map(p => { const ses = session.fromPartition('persist:aoshi-' + p); return Promise.all([ses.clearStorageData(), ses.clearCache()]).catch(() => {}); })).finally(() => app.quit());
 });
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   load();
+  // a sessão sem proxy (e as extensões dela) ficam prontas antes da barra aparecer
+  try { await withTimeout(sessionFor(''), 6000); } catch (_) {}
   createWindow();
   restartCheckTimer();
   try { if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!S().autoStart }); } catch (_) {}

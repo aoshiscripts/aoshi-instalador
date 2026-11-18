@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' crx: data:">
 <title>Aoshi Pro</title>
 <link rel="stylesheet" href="ui.css">
 </head>
@@ -26,6 +26,9 @@
     <button id="zoom-chip" class="ghost" hidden title="Zoom desta aba — clique para voltar ao padrão (Ctrl+0)"></button>
     <div id="findbar" hidden><input id="find-q" placeholder="Buscar na página" spellcheck="false"><span id="find-n"></span><button class="icon" id="find-prev" title="Anterior (Shift+Enter)">‹</button><button class="icon" id="find-next" title="Próximo (Enter)">›</button><button class="icon" id="find-x" title="Fechar (Esc)">✕</button></div>
     <div id="notice" hidden></div>
+    <!-- botões das extensões (ícone, contador e janelinha de cada uma) -->
+    <browser-action-list id="ext-actions" alignment="bottom right"></browser-action-list>
+    <button id="btn-ext" class="icon" title="Extensões">🧩</button>
   </div>
 
   <!-- Nova aba / trocar proxy da aba -->
@@ -72,6 +75,7 @@
         <a data-sec="geral" class="on">Geral</a>
         <a data-sec="priv">Privacidade e segurança</a>
         <a data-sec="down">Downloads</a>
+        <a data-sec="ext">Extensões</a>
         <a data-sec="aoshi">Aoshi Pro</a>
         <a data-sec="prog">Programa</a>
         <a data-sec="atalhos">Atalhos</a>
@@ -110,6 +114,12 @@
           <h4>Pasta</h4>
           <div class="row"><input class="full" id="down-dir" readonly><button id="down-pick" class="ghost">Alterar</button><button id="down-open" class="ghost">Abrir</button></div>
           <label class="opt"><input type="checkbox" data-s="askDownload"> Perguntar onde salvar cada arquivo</label>
+        </section>
+        <section data-sec="ext" hidden>
+          <h4>Extensões do Chrome</h4>
+          <div class="hint">Abra a Chrome Web Store, escolha a extensão e clique em <b>Usar no Chrome</b>. Ela passa a valer em todas as abas, com qualquer proxy, e o botão dela aparece na barra, ao lado do endereço. A maioria das extensões funciona; uma ou outra que usa recurso muito específico do Chrome pode falhar.</div>
+          <div class="row"><button id="ext-store">Abrir Chrome Web Store</button><button id="ext-folder" class="ghost">Carregar pasta de extensão</button><span class="hint" id="ext-msg"></span></div>
+          <div id="ext-list" class="ext-list"></div>
         </section>
         <section data-sec="aoshi" hidden>
           <h4>Script</h4>

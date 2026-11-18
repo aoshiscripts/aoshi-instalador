@@ -16,6 +16,9 @@ function renderTabs() {
     if (document.activeElement !== $('#addr')) $('#addr').value = a.url;
     $('#back').disabled = !a.canBack; $('#fwd').disabled = !a.canFwd;
     $('#proxy-name').textContent = a.profileName;
+    // extensões: mostra os botões da sessão (proxy) e da aba ativa
+    const ea = $('#ext-actions');
+    if (ea && (ea.getAttribute('partition') !== a.partition || ea.getAttribute('tab') !== String(a.wcId))) { ea.setAttribute('partition', a.partition); ea.setAttribute('tab', String(a.wcId)); }
     $('#proxy-chip .dot').style.background = a.profileId ? (a.color || profColor(a.profileId)) : '#52525b';
     document.title = `${a.title} — Aoshi Pro`;
     const zc = $('#zoom-chip'); zc.hidden = !a.zoom || a.zoom === (settings.zoom || 100); zc.textContent = (a.zoom || 100) + '%';
@@ -231,9 +234,19 @@ async function openSettings(sec) {
 function showSec(sec) {
   document.querySelectorAll('.set-nav a').forEach(a => a.classList.toggle('on', a.dataset.sec === sec));
   document.querySelectorAll('.set-body section').forEach(s => { s.hidden = s.dataset.sec !== sec; });
+  if (sec === 'ext') renderExt();
 }
 async function saveSetting(k, v) { settings = await aoshi.saveSettings({ [k]: v }); renderTabs(); }
 $('.set-nav').addEventListener('click', e => { const a = e.target.closest('a[data-sec]'); if (a) showSec(a.dataset.sec); });
+// ---------- Extensões ----------
+async function renderExt(list) {
+  list = list || await aoshi.extList();
+  $('#ext-list').innerHTML = list.length ? list.map(e => `<div class="ext"><img src="crx://extension-icon/${esc(e.id)}/32/2?partition=persist:aoshi-direto" alt=""><span class="n">${esc(e.name)}</span><span class="v">${esc(e.version)}</span><button class="ghost sm" data-ext-del="${esc(e.id)}">Remover</button></div>`).join('') : '<div class="hint">Nenhuma extensão instalada.</div>';
+}
+$('#ext-store').onclick = async () => { show('#m-set', false); await aoshi.extStore(); };
+$('#btn-ext').onclick = () => openSettings('ext');
+$('#ext-folder').onclick = async () => { const r = await aoshi.extLoadFolder(); $('#ext-msg').textContent = r.ok ? `"${r.name}" carregada.` : (r.message ? 'Não carregou: ' + r.message : ''); renderExt(); };
+$('#ext-list').addEventListener('click', async e => { const b = e.target.closest('[data-ext-del]'); if (!b) return; if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar'; setTimeout(() => { b.dataset.confirm = ''; b.textContent = 'Remover'; }, 4000); return; } renderExt(await aoshi.extRemove(b.dataset.extDel)); });
 $('#m-set').addEventListener('change', e => {
   const el = e.target;
   if (el.name === 'startup') return saveSetting('startup', el.value);
@@ -288,6 +301,7 @@ $('#btn-update').onclick = async () => { const msg = await aoshi.checkCode(); no
 aoshi.on((ch, d) => {
   if (ch === 'tabs') { state = d; renderTabs(); }
   else if (ch === 'profiles') { profiles = d.profiles || []; renderTabs(); }
+  else if (ch === 'extensions') { if (!$('#m-set').hidden && !document.querySelector('section[data-sec="ext"]').hidden) renderExt(d.list || []); }
   else if (ch === 'new-tab') openPick('new');
   else if (ch === 'find-open') openFind();
   else if (ch === 'find') { $('#find-n').textContent = d.matches ? `${d.active}/${d.matches}` : '0/0'; }
