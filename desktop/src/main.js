@@ -16,6 +16,9 @@ const HOME = 'https://www.tribalwars.com.br/';
 const TW_HOST = /(^|\.)(tribalwars|die-staemme|staemme|plemiona|guerretribale|divokekmeny|klanhaboru|triburile|vojnaplemen)\./i;
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
+// Privacidade: sem descoberta de IP local pelo WebRTC
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 
 // ---------- Armazenamento ----------
 const DATA_FILE = () => path.join(app.getPath('userData'), 'aoshi-desktop.json');
@@ -81,6 +84,20 @@ function proxyRules(p) {
   return `${type === 'socks5' ? 'socks5' : type === 'https' ? 'https' : 'http'}://${p.proxy.host}:${p.proxy.port || (type === 'socks5' ? 1080 : 8080)}`;
 }
 const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electron\/\S+/, '').replace(/\s?aoshi-pro-desktop\/\S+/i, '').replace(/\s?Aoshi Pro\/\S+/i, '');
+// ---------- Privacidade ----------
+// Rastreadores conhecidos bloqueados; pedidos levam "não rastrear" (DNT e GPC).
+const TRACKERS = /(^|\.)(google-analytics\.com|googletagmanager\.com|googletagservices\.com|doubleclick\.net|googlesyndication\.com|adservice\.google\.[a-z.]+|facebook\.net|connect\.facebook\.com|hotjar\.(com|io)|clarity\.ms|scorecardresearch\.com|quantserve\.com|criteo\.(com|net)|taboola\.com|outbrain\.com|adnxs\.com|amazon-adsystem\.com|mixpanel\.com|segment\.(io|com)|bat\.bing\.com|ads\.yahoo\.com|yandex\.ru\/metrika|mc\.yandex\.ru|tiktok\.com\/i18n\/pixel|analytics\.tiktok\.com|newrelic\.com|nr-data\.net)$/i;
+function hardenSession(ses) {
+  ses.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (d, cb) => {
+    try { const h = new URL(d.url).hostname; if (TRACKERS.test(h) && d.resourceType !== 'mainFrame') return cb({ cancel: true }); } catch (_) {}
+    cb({});
+  });
+  ses.webRequest.onBeforeSendHeaders((d, cb) => { const h = d.requestHeaders; h['DNT'] = '1'; h['Sec-GPC'] = '1'; cb({ requestHeaders: h }); });
+  // sem acesso a câmera, microfone, localização, notificações etc. (o jogo não usa)
+  ses.setPermissionRequestHandler((wc, perm, cb) => cb(['clipboard-sanitized-write', 'fullscreen'].includes(perm)));
+  ses.setPermissionCheckHandler((wc, perm) => ['clipboard-sanitized-write', 'fullscreen'].includes(perm));
+}
+
 const prepared = new Set();
 async function sessionFor(profileId) {
   const part = 'persist:aoshi-' + (profileId || 'direto');
@@ -88,6 +105,7 @@ async function sessionFor(profileId) {
   if (!prepared.has(part)) {
     prepared.add(part);
     ses.setUserAgent(chromeUA());
+    hardenSession(ses);
   }
   const rules = proxyRules(profileOf(profileId));
   await ses.setProxy(rules ? { proxyRules: rules, proxyBypassRules: '<local>' } : { mode: 'direct' });
@@ -123,6 +141,8 @@ async function newTab(profileId, url, activate = true) {
   tabs.push(t);
   win.contentView.addChildView(view);
   const wc = view.webContents;
+  // WebRTC só pelo proxy: o site não descobre o IP real por ele
+  try { wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp'); } catch (_) {}
   wc.setWindowOpenHandler(({ url: u }) => { newTab(t.profileId, u, true); return { action: 'deny' }; });
   wc.on('dom-ready', () => { try { if (TW_HOST.test(new URL(wc.getURL()).hostname)) inject(wc); } catch (_) {} });
   ['page-title-updated', 'did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading'].forEach(ev => wc.on(ev, pushTabs));
