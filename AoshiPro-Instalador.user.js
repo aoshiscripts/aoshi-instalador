@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.5
+// @version      1.6
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -29,7 +29,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
 // @connect      api.github.com
-// @run-at       document-end
+// @run-at       document-start
 // @noframes
 // ==/UserScript==
 
@@ -42,7 +42,25 @@
    - Repositório privado: precisa de um token de LEITURA do GitHub, colado uma única vez (fica guardado só no
      seu Tampermonkey). Menu do Tampermonkey › "Aoshi Pro: trocar token" para mudar.
    - Sem internet ou com o GitHub fora do ar, roda a última cópia guardada. */
+// Bem no começo da página (antes do mapa desenhar): redutores de ícones já aplicados, sem os ícones aparecerem grandes primeiro.
+// Mesmos IDs de estilo do Aoshi Pro: ele reconhece, e desligar o redutor remove normalmente.
 (function () {
+  try {
+    if (window.top !== window.self || !/[?&]screen=map\b/.test(location.search)) return;
+    const r60 = localStorage.getItem('aoshi-module-redutor-60') === '1';
+    const r50 = !r60 && localStorage.getItem('aoshi-module-redutor-50') === '1';
+    if (!r60 && !r50) return;
+    const st = document.createElement('style');
+    st.id = r60 ? 'aoshi-group-icon-reducer-60' : 'aoshi-group-icon-reducer-50';
+    st.textContent = r60
+      ? '[id^="map_icons_"],#map_container img[src*="/map/reserved_"]{transform:scale(.6)!important;transform-origin:bottom right!important;transition:none!important;animation:none!important}[id^="map_icons_"] img{width:13px!important;height:13px!important;max-width:13px!important;max-height:13px!important;transform:scale(.6)!important;transform-origin:bottom right!important}'
+      : '#map_container img[id^="map_icons_"],#map_container img[src*="/map/reserved_"]{transform:scale(.5)!important;transform-origin:bottom right!important;transition:none!important;animation:none!important}#map_container img[src*="/map/reserved_"]{transform:scale(.6)!important}';
+    (document.head || document.documentElement).appendChild(st);
+  } catch (_) {}
+})();
+
+// O resto espera a página carregar (como antes).
+const aoshiInstallerMain = () => (function () {
   'use strict';
   if (window.top !== window.self) return;
 
@@ -158,7 +176,7 @@
   const mark = () => {
     const when = Number(GM_getValue(K.when, 0)) || 0;
     const pending = ranWhen > 0 && when !== ranWhen;
-    root.dataset.aoshiInstaller = '1'; root.dataset.aoshiInstallerV = '1.5';
+    root.dataset.aoshiInstaller = '1'; root.dataset.aoshiInstallerV = '1.6';
     root.dataset.aoshiUpdated = String(when || ''); root.dataset.aoshiPending = pending ? '1' : '';
     return pending;
   };
@@ -205,3 +223,4 @@
       setInterval(sync, 5000);
     });
 })();
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', aoshiInstallerMain, { once: true }); else aoshiInstallerMain();
