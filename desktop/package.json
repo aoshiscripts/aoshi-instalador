@@ -1,0 +1,60 @@
+{
+  "name": "aoshi-pro-desktop",
+  "productName": "Aoshi Pro",
+  "version": "1.0.0",
+  "description": "Navegador do Aoshi Pro: abas com proxy próprio e o Aoshi Pro já embutido, sempre atualizado.",
+  "author": "aoshiscripts",
+  "license": "UNLICENSED",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "br.aoshi.pro.desktop",
+    "productName": "Aoshi Pro",
+    "artifactName": "AoshiPro-Setup-${version}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Aoshi Pro"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "aoshiscripts",
+        "repo": "aoshi-instalador",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

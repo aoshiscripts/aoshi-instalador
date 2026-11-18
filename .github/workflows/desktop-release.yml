@@ -1,0 +1,29 @@
+name: Aoshi Pro Desktop — instalador do Windows
+
+# Toda tag "v*" (ex.: v1.0.1) gera o instalador e publica em Releases.
+# O programa instalado confere essas Releases e se atualiza sozinho.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+      - name: Gerar e publicar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish always

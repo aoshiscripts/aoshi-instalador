@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Aoshi Pro</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <div id="tabbar">
+    <div class="brand">Aoshi <b>Pro</b></div>
+    <div id="tabs"></div>
+    <button id="add" class="icon" title="Nova aba (Ctrl+T)">+</button>
+    <div class="spacer"></div>
+    <button id="btn-profiles" class="ghost" title="Perfis de proxy">Proxies</button>
+    <button id="btn-update" class="ghost" title="Conferir se tem versão nova do Aoshi Pro">Aoshi Pro <span id="code-ver"></span></button>
+  </div>
+  <div id="navbar">
+    <button class="icon" id="back" title="Voltar">‹</button>
+    <button class="icon" id="fwd" title="Avançar">›</button>
+    <button class="icon" id="reload" title="Recarregar (F5)">⟳</button>
+    <div id="proxy-chip" title="Proxy desta aba — clique para trocar"><span class="dot"></span><span id="proxy-name">Sem proxy</span><span class="caret">▾</span></div>
+    <input id="addr" spellcheck="false" autocomplete="off">
+    <div id="notice" hidden></div>
+  </div>
+
+  <!-- Nova aba / trocar proxy da aba -->
+  <div class="modal" id="m-pick" hidden>
+    <div class="card">
+      <h3 id="pick-title">Nova aba</h3>
+      <div class="hint">Escolha o proxy desta aba. Abas com perfis diferentes têm cookies e login separados.</div>
+      <div id="pick-list" class="pick-list"></div>
+      <label class="row" id="pick-url-row">Endereço <input id="pick-url" value="https://www.tribalwars.com.br/"></label>
+      <div class="actions"><button class="ghost" data-close>Cancelar</button><button id="pick-manage" class="ghost">Gerenciar proxies</button><button id="pick-ok">Abrir</button></div>
+    </div>
+  </div>
+
+  <!-- Perfis de proxy -->
+  <div class="modal" id="m-prof" hidden>
+    <div class="card wide">
+      <h3>Perfis de proxy</h3>
+      <div class="hint">Cada perfil tem o seu proxy e os seus cookies. Use um perfil em cada aba.</div>
+      <div id="prof-list"></div>
+      <div class="actions"><button id="prof-add" class="ghost">+ Novo perfil</button><span class="spacer"></span><button class="ghost" data-close>Fechar</button><button id="prof-save">Salvar</button></div>
+    </div>
+  </div>
+
+  <!-- Token do GitHub -->
+  <div class="modal" id="m-token" hidden>
+    <div class="card">
+      <h3>Token do GitHub</h3>
+      <div class="hint" id="token-reason">Cole o token de leitura do GitHub (repositório aoshiscripts/aoshi-pro). Ele fica guardado cifrado só neste computador.</div>
+      <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+      <div class="err" id="token-err"></div>
+      <div class="actions"><button class="ghost" data-close>Depois</button><button id="token-ok">Salvar</button></div>
+    </div>
+  </div>
+<script src="ui.js"></script>
+</body>
+</html>
