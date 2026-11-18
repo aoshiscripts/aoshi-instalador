@@ -16,9 +16,8 @@ function renderTabs() {
     if (document.activeElement !== $('#addr')) $('#addr').value = a.url;
     $('#back').disabled = !a.canBack; $('#fwd').disabled = !a.canFwd;
     $('#proxy-name').textContent = a.profileName;
-    // extensões: mostra os botões da sessão (proxy) e da aba ativa
-    const ea = $('#ext-actions');
-    if (ea && (ea.getAttribute('partition') !== a.partition || ea.getAttribute('tab') !== String(a.wcId))) { ea.setAttribute('partition', a.partition); ea.setAttribute('tab', String(a.wcId)); }
+    // extensões: botões da sessão (proxy) e da aba ativa
+    if (extPart !== a.partition || extTab !== String(a.wcId)) { extPart = a.partition; extTab = String(a.wcId); observeExt(extPart); }
     $('#proxy-chip .dot').style.background = a.profileId ? (a.color || profColor(a.profileId)) : '#52525b';
     document.title = `${a.title} — Aoshi Pro`;
     const zc = $('#zoom-chip'); zc.hidden = !a.zoom || a.zoom === (settings.zoom || 100); zc.textContent = (a.zoom || 100) + '%';
@@ -221,30 +220,115 @@ async function openSettings(sec) {
   document.querySelectorAll('#m-set [data-s]').forEach(el => { const v = settings[el.dataset.s]; if (el.type === 'checkbox') el.checked = !!v; else el.value = String(v ?? ''); });
   document.querySelectorAll('#m-set input[name="startup"]').forEach(r => { r.checked = r.value === settings.startup; });
   $('#down-dir').value = settings.downloadDir || setInfo.downloadsDefault;
-  $('#clr-prof').innerHTML = '<option value="*">Todos os perfis</option><option value="">Sem proxy</option>' + setInfo.profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+  $('#clr-prof').innerHTML = '<option value="*">Todos os proxies</option><option value="">Sem proxy</option>' + setInfo.profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
   $('#clr-info').textContent = `Cache ocupando cerca de ${setInfo.cacheMB} MB.`;
   $('#set-script').textContent = setInfo.script ? 'v' + setInfo.script : '—';
   $('#set-script-when').textContent = fmtWhen(setInfo.scriptWhen);
   $('#set-token-st').textContent = setInfo.hasToken ? 'Token salvo (cifrado neste computador).' : 'Nenhum token salvo.';
   $('#set-ver').textContent = 'v' + setInfo.version;
   $('#set-app-msg').textContent = '';
+  $('#set-brand-ver').textContent = 'Aoshi Pro Desktop v' + setInfo.version;
+  $('#set-about').textContent = `Versão ${setInfo.version} · Chrome ${setInfo.chrome} · Electron ${setInfo.electron}`;
+  $('#down-dir-txt').textContent = settings.downloadDir || setInfo.downloadsDefault;
+  $('#set-px-count').textContent = setInfo.profileCount ? `${setInfo.profileCount} proxies cadastrados` : 'Nenhum proxy cadastrado';
+  document.querySelectorAll('#m-set .swatch').forEach(b => b.classList.toggle('on', b.dataset.accent.toLowerCase() === String(settings.accent || '#7c3aed').toLowerCase()));
+  $('#set-q').value = ''; filterSettings('');
   showSec(sec || document.querySelector('.set-nav a.on')?.dataset.sec || 'geral');
   show('#m-set', true);
 }
-function showSec(sec) {
+function showSec(sec, keepQuery) {
+  if (!keepQuery && $('#set-q') && $('#set-q').value) { $('#set-q').value = ''; filterSettings(''); }
   document.querySelectorAll('.set-nav a').forEach(a => a.classList.toggle('on', a.dataset.sec === sec));
   document.querySelectorAll('.set-body section').forEach(s => { s.hidden = s.dataset.sec !== sec; });
   if (sec === 'ext') renderExt();
 }
-async function saveSetting(k, v) { settings = await aoshi.saveSettings({ [k]: v }); renderTabs(); }
+async function saveSetting(k, v) { settings = await aoshi.saveSettings({ [k]: v }); applyLook(settings); renderTabs(); }
+// ---------- Aparência ----------
+function shade(hex, f) { const n = parseInt(String(hex).slice(1), 16); if (!Number.isFinite(n)) return hex; let r = n >> 16, g = (n >> 8) & 255, b = n & 255; r = Math.round(r + (255 - r) * f); g = Math.round(g + (255 - g) * f); b = Math.round(b + (255 - b) * f); return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1); }
+function applyLook(st) {
+  st = st || {};
+  const acc = /^#[0-9a-f]{6}$/i.test(st.accent || '') ? st.accent : '#7c3aed';
+  document.documentElement.style.setProperty('--acc', acc);
+  document.documentElement.style.setProperty('--acc2', shade(acc, 0.18));
+  document.body.classList.toggle('no-tabproxy', st.tabProxy === false);
+  document.body.classList.toggle('tab-compact', !!st.tabCompact);
+}
+aoshi.getSettings().then(i => { settings = i.settings; applyLook(settings); }).catch(() => {});
+$('#m-set').addEventListener('click', e => {
+  const sw = e.target.closest('.swatch'); if (sw) { document.querySelectorAll('#m-set .swatch').forEach(b => b.classList.toggle('on', b === sw)); saveSetting('accent', sw.dataset.accent); return; }
+  const it = e.target.closest('.item.radio'); if (it && !e.target.matches('input')) { const r = it.querySelector('input[type=radio]'); if (r && !r.checked) { r.checked = true; saveSetting('startup', r.value); } }
+});
+// busca nas configurações: mostra só os itens que combinam, de todas as seções
+function filterSettings(q) {
+  q = String(q || '').trim().toLowerCase();
+  $('.set-body').classList.toggle('searching', !!q);
+  const secs = [...document.querySelectorAll('.set-body section')];
+  if (!q) { secs.forEach(sec => { sec.querySelectorAll('.item, .group, h4').forEach(el => { el.hidden = false; }); }); $('.set-empty').hidden = true; showSec(document.querySelector('.set-nav a.on')?.dataset.sec || 'geral', true); return; }
+  let any = false;
+  secs.forEach(sec => {
+    let secHit = false;
+    sec.querySelectorAll('.group').forEach(g => {
+      let gHit = false;
+      g.querySelectorAll(':scope > .item').forEach(it => { const hit = (it.textContent + ' ' + (sec.querySelector('.sec-head')?.textContent || '')).toLowerCase().includes(q); it.hidden = !hit; gHit = gHit || hit; });
+      g.hidden = !gHit; const h = g.previousElementSibling; if (h && h.tagName === 'H4') h.hidden = !gHit;
+      secHit = secHit || gHit;
+    });
+    sec.hidden = !secHit; any = any || secHit;
+  });
+  $('.set-empty').hidden = any;
+}
+$('#set-q').addEventListener('input', e => filterSettings(e.target.value));
 $('.set-nav').addEventListener('click', e => { const a = e.target.closest('a[data-sec]'); if (a) showSec(a.dataset.sec); });
 // ---------- Extensões ----------
 async function renderExt(list) {
   list = list || await aoshi.extList();
-  $('#ext-list').innerHTML = list.length ? list.map(e => `<div class="ext"><img src="crx://extension-icon/${esc(e.id)}/32/2?partition=persist:aoshi-direto" alt=""><span class="n">${esc(e.name)}</span><span class="v">${esc(e.version)}</span><button class="ghost sm" data-ext-del="${esc(e.id)}">Remover</button></div>`).join('') : '<div class="hint">Nenhuma extensão instalada.</div>';
+  extNames = list;
+  $('#ext-list').innerHTML = list.length ? list.map(e => `<div class="item"><div class="txt ext-n"><img src="crx://extension-icon/${esc(e.id)}/32/2?partition=persist:aoshi-direto" alt=""><span><b>${esc(e.name)}</b><small>versão ${esc(e.version)}</small></span></div><div class="ctl"><label class="sw" title="Mostrar o botão na barra"><input type="checkbox" data-pin="${esc(e.id)}"${unpinned().has(e.id) ? '' : ' checked'}><span></span></label><button class="ghost sm" data-ext-del="${esc(e.id)}">Remover</button></div></div>`).join('') : '<div class="item"><div class="txt"><small>Nenhuma extensão instalada ainda.</small></div></div>';
 }
 $('#ext-store').onclick = async () => { show('#m-set', false); await aoshi.extStore(); };
-$('#btn-ext').onclick = () => openSettings('ext');
+// ---------- Botões das extensões na barra e menu da peça ----------
+// Cada extensão fixada vira um botão ao lado do endereço (ícone, contador e janelinha). O menu da peça
+// lista todas, com fixar/desafixar, como no Chrome.
+let extNames = [], extPart = 'persist:aoshi-direto', extTab = '', extState = { actions: [] }, extObserved = null;
+const unpinned = () => { try { return new Set(JSON.parse(localStorage.getItem('ext-unpinned') || '[]')); } catch (_) { return new Set(); } };
+function setPinned(id, on) { const u = unpinned(); if (on) u.delete(id); else u.add(id); localStorage.setItem('ext-unpinned', JSON.stringify([...u])); renderExtBar(); renderExtMenu(); }
+const extIcon = (id, mod) => `crx://extension-icon/${encodeURIComponent(id)}/32/2?tabId=${encodeURIComponent(extTab)}&partition=${encodeURIComponent(extPart)}${mod ? '&t=' + mod : ''}`;
+const actInfo = a => Object.assign({}, a, (a.tabs || {})[extTab] || {});
+const extName = id => (extNames.find(e => e.id === id) || {}).name || '';
+function renderExtBar() {
+  const u = unpinned();
+  $('#ext-bar').innerHTML = (extState.actions || []).filter(a => !u.has(a.id)).map(a => { const i = actInfo(a); return `<button class="icon ext-btn" data-ext="${esc(a.id)}" title="${esc(i.title || extName(a.id))}"><img src="${extIcon(a.id, i.iconModified)}" alt=""><span class="badge"${i.text ? '' : ' hidden'} style="background:${esc(i.color || 'var(--acc)')}">${esc(i.text || '')}</span></button>`; }).join('');
+}
+function renderExtMenu() {
+  const box = $('#em-list'); if (!box) return;
+  const u = unpinned(), acts = new Map((extState.actions || []).map(a => [a.id, a]));
+  const list = extNames.length ? extNames : (extState.actions || []).map(a => ({ id: a.id, name: a.title || a.id }));
+  box.innerHTML = list.length ? list.map(e => `<div class="em-item" data-ext="${esc(e.id)}"><img src="${extIcon(e.id)}" alt=""><span class="n">${esc(e.name)}</span><button class="icon pin${u.has(e.id) ? '' : ' on'}" data-pin-toggle="${esc(e.id)}" title="${u.has(e.id) ? 'Fixar na barra' : 'Tirar da barra'}"><svg viewBox="0 0 24 24" width="15" height="15" fill="${u.has(e.id) ? 'none' : 'currentColor'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2h-4v5l-1 1-1-1v-5H7v-2l3-3z"/></svg></button></div>`).join('') : '<div class="em-empty">Nenhuma extensão instalada.<br>Abra a Chrome Web Store para adicionar.</div>';
+}
+function observeExt(part) {
+  if (!window.browserAction) return;
+  if (extObserved !== part) { try { if (extObserved) browserAction.removeObserver(extObserved); browserAction.addObserver(part); } catch (_) {} extObserved = part; }
+  browserAction.getState(part).then(st => { extState = st || { actions: [] }; renderExtBar(); }).catch(() => {});
+}
+if (window.browserAction) browserAction.addEventListener('update', st => { if (st) extState = st; renderExtBar(); renderExtMenu(); });
+function activateExt(id, el) {
+  if (!window.browserAction) return;
+  const r = el.getBoundingClientRect();
+  browserAction.activate(extPart, { eventType: 'click', extensionId: id, tabId: Number(extTab), alignment: 'bottom left', anchorRect: { x: r.left, y: r.top, width: r.width, height: r.height } });
+}
+$('#ext-bar').addEventListener('click', e => { const b = e.target.closest('.ext-btn'); if (b) activateExt(b.dataset.ext, b); });
+$('#btn-ext').onclick = async () => { extNames = await aoshi.extList(); renderExtMenu(); show('#m-extmenu', true); };
+$('#em-list').addEventListener('click', e => {
+  const pin = e.target.closest('[data-pin-toggle]'); if (pin) { const id = pin.dataset.pinToggle; setPinned(id, unpinned().has(id)); return; }
+  const it = e.target.closest('.em-item'); if (!it) return;
+  show('#m-extmenu', false);
+  const btn = document.querySelector(`#ext-bar .ext-btn[data-ext="${CSS.escape(it.dataset.ext)}"]`) || $('#btn-ext');
+  setTimeout(() => activateExt(it.dataset.ext, btn), 60);
+});
+$('#em-store').onclick = async () => { show('#m-extmenu', false); await aoshi.extStore(); };
+$('#em-manage').onclick = () => { show('#m-extmenu', false); openSettings('ext'); };
+$('#ext-list').addEventListener('change', e => { const c = e.target.closest('[data-pin]'); if (c) setPinned(c.dataset.pin, c.checked); });
+aoshi.extList().then(l => { extNames = l; }).catch(() => {});
 $('#ext-folder').onclick = async () => { const r = await aoshi.extLoadFolder(); $('#ext-msg').textContent = r.ok ? `"${r.name}" carregada.` : (r.message ? 'Não carregou: ' + r.message : ''); renderExt(); };
 $('#ext-list').addEventListener('click', async e => { const b = e.target.closest('[data-ext-del]'); if (!b) return; if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar'; setTimeout(() => { b.dataset.confirm = ''; b.textContent = 'Remover'; }, 4000); return; } renderExt(await aoshi.extRemove(b.dataset.extDel)); });
 $('#m-set').addEventListener('change', e => {
@@ -264,7 +348,7 @@ $('#clr-go').onclick = async () => {
   $('#clr-info').textContent = 'Pronto. ' + (what === 'cache' ? 'Cache limpo.' : 'Recarregue as abas desse perfil.');
 };
 $('#set-proxies').onclick = () => { show('#m-set', false); openProfiles(); };
-$('#down-pick').onclick = async () => { const d = await aoshi.pickDownloads(); if (d) { $('#down-dir').value = d; saveSetting('downloadDir', d); } };
+$('#down-pick').onclick = async () => { const d = await aoshi.pickDownloads(); if (d) { $('#down-dir').value = d; $('#down-dir-txt').textContent = d; saveSetting('downloadDir', d); } };
 $('#down-open').onclick = () => aoshi.openDownloads();
 $('#set-check').onclick = async () => { const msg = await aoshi.checkCode(); notice(msg, /nova/i.test(msg) ? { label: 'Recarregar abas', run: () => aoshi.reloadAll() } : null); const i = await aoshi.getSettings(); $('#set-script').textContent = i.script ? 'v' + i.script : '—'; $('#set-script-when').textContent = fmtWhen(i.scriptWhen); };
 $('#set-reload').onclick = () => aoshi.reloadAll();
@@ -301,7 +385,7 @@ $('#btn-update').onclick = async () => { const msg = await aoshi.checkCode(); no
 aoshi.on((ch, d) => {
   if (ch === 'tabs') { state = d; renderTabs(); }
   else if (ch === 'profiles') { profiles = d.profiles || []; renderTabs(); }
-  else if (ch === 'extensions') { if (!$('#m-set').hidden && !document.querySelector('section[data-sec="ext"]').hidden) renderExt(d.list || []); }
+  else if (ch === 'extensions') { extNames = d.list || []; observeExt(extPart); renderExtMenu(); if (!$('#m-set').hidden && !document.querySelector('section[data-sec="ext"]').hidden) renderExt(d.list || []); }
   else if (ch === 'new-tab') openPick('new');
   else if (ch === 'find-open') openFind();
   else if (ch === 'find') { $('#find-n').textContent = d.matches ? `${d.active}/${d.matches}` : '0/0'; }

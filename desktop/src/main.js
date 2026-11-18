@@ -32,7 +32,8 @@ const DEFAULTS = {
   home: HOME, startup: 'restore', search: 'google', zoom: 100,
   blockTrackers: true, dnt: true, webrtcProxy: true, denyPerms: true, clearOnExit: false,
   downloadDir: '', askDownload: false,
-  checkMin: 5, autoStart: false, confirmClose: false
+  checkMin: 5, autoStart: false, confirmClose: false,
+  accent: '#7c3aed', tabProxy: true, tabCompact: false
 };
 const S = () => Object.assign({}, DEFAULTS, store.settings || {});
 const SEARCH = { google: 'https://www.google.com/search?q=', bing: 'https://www.bing.com/search?q=', duck: 'https://duckduckgo.com/?q=' };
@@ -423,7 +424,7 @@ ipcMain.handle('ext:load-folder', async () => {
 });
 ipcMain.handle('settings:get', async () => {
   let size = 0; try { for (const part of new Set(['direto'].concat(store.profiles.map(p => p.id)))) size += await session.fromPartition('persist:aoshi-' + part).getCacheSize(); } catch (_) {}
-  return { settings: S(), version: app.getVersion(), script: versionOf(code()), scriptWhen: store.when, hasToken: !!decToken(store.token), downloadsDefault: app.getPath('downloads'), cacheMB: Math.round(size / 1048576), profiles: store.profiles.map(p => ({ id: p.id, name: p.name })) };
+  return { chrome: process.versions.chrome, electron: process.versions.electron, extCount: extList().length, profileCount: store.profiles.length, settings: S(), version: app.getVersion(), script: versionOf(code()), scriptWhen: store.when, hasToken: !!decToken(store.token), downloadsDefault: app.getPath('downloads'), cacheMB: Math.round(size / 1048576), profiles: store.profiles.map(p => ({ id: p.id, name: p.name })) };
 });
 ipcMain.handle('settings:save', (_, next) => {
   const prev = S();

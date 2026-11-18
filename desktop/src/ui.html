@@ -26,9 +26,9 @@
     <button id="zoom-chip" class="ghost" hidden title="Zoom desta aba — clique para voltar ao padrão (Ctrl+0)"></button>
     <div id="findbar" hidden><input id="find-q" placeholder="Buscar na página" spellcheck="false"><span id="find-n"></span><button class="icon" id="find-prev" title="Anterior (Shift+Enter)">‹</button><button class="icon" id="find-next" title="Próximo (Enter)">›</button><button class="icon" id="find-x" title="Fechar (Esc)">✕</button></div>
     <div id="notice" hidden></div>
-    <!-- botões das extensões (ícone, contador e janelinha de cada uma) -->
-    <browser-action-list id="ext-actions" alignment="bottom right"></browser-action-list>
-    <button id="btn-ext" class="icon" title="Extensões">🧩</button>
+    <!-- extensões fixadas (ícone, contador e janelinha de cada uma) e o menu de extensões -->
+    <div id="ext-bar"></div>
+    <button id="btn-ext" class="icon" title="Extensões"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M10 3.5a2 2 0 0 1 4 0V5h3a1 1 0 0 1 1 1v3h1.5a2 2 0 0 1 0 4H18v4a1 1 0 0 1-1 1h-3.5v-1.5a2 2 0 0 0-4 0V18H6a1 1 0 0 1-1-1v-4H3.5a2 2 0 0 1 0-4H5V6a1 1 0 0 1 1-1h4z"/></svg></button>
   </div>
 
   <!-- Nova aba / trocar proxy da aba -->
@@ -71,86 +71,40 @@
   <div class="modal" id="m-set" hidden>
     <div class="card settings">
       <nav class="set-nav">
-        <h3>Configurações</h3>
-        <a data-sec="geral" class="on">Geral</a>
-        <a data-sec="priv">Privacidade e segurança</a>
-        <a data-sec="down">Downloads</a>
-        <a data-sec="ext">Extensões</a>
-        <a data-sec="aoshi">Aoshi Pro</a>
-        <a data-sec="prog">Programa</a>
-        <a data-sec="atalhos">Atalhos</a>
+        <div class="set-brand"><img src="logo.png" alt=""><div><b>Configurações</b><small id="set-brand-ver"></small></div></div>
+        <input id="set-q" placeholder="Buscar nas configurações" spellcheck="false">
+        <a data-sec="geral" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Geral</span></a>
+        <a data-sec="aparencia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.5-1 1-2s-.4-2 1-2h2a5 5 0 0 0 5-5c0-5-4-9-9-9z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/></svg><span>Aparência</span></a>
+        <a data-sec="priv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg><span>Privacidade e segurança</span></a>
+        <a data-sec="proxy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/></svg><span>Proxies</span></a>
+        <a data-sec="down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></svg><span>Downloads</span></a>
+        <a data-sec="ext"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5a2 2 0 0 1 4 0V5h3a1 1 0 0 1 1 1v3h1.5a2 2 0 0 1 0 4H18v4a1 1 0 0 1-1 1h-3.5v-1.5a2 2 0 0 0-4 0V18H6a1 1 0 0 1-1-1v-4H3.5a2 2 0 0 1 0-4H5V6a1 1 0 0 1 1-1h4z"/></svg><span>Extensões</span></a>
+        <a data-sec="aoshi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 5 13h6l-1 8 8-10h-6z"/></svg><span>Aoshi Pro</span></a>
+        <a data-sec="atalhos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg><span>Atalhos</span></a>
+        <a data-sec="prog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg><span>Sobre</span></a>
       </nav>
       <div class="set-body">
-        <section data-sec="geral">
-          <h4>Ao abrir o programa</h4>
-          <label class="opt"><input type="radio" name="startup" value="restore"> Reabrir as abas da última vez</label>
-          <label class="opt"><input type="radio" name="startup" value="home"> Abrir a página inicial</label>
-          <h4>Página inicial</h4>
-          <input class="full" data-s="home" spellcheck="false">
-          <h4>Pesquisa na barra de endereço</h4>
-          <select data-s="search"><option value="google">Google</option><option value="bing">Bing</option><option value="duck">DuckDuckGo</option></select>
-          <h4>Zoom padrão das páginas</h4>
-          <select data-s="zoom"></select>
-          <h4>Janela</h4>
-          <label class="opt"><input type="checkbox" data-s="confirmClose"> Perguntar antes de fechar com várias abas abertas</label>
-          <label class="opt"><input type="checkbox" data-s="autoStart"> Abrir o Aoshi Pro quando o Windows iniciar</label>
-        </section>
-        <section data-sec="priv" hidden>
-          <h4>Proteções</h4>
-          <label class="opt"><input type="checkbox" data-s="webrtcProxy"> <span><b>WebRTC só pelo proxy</b><small>Impede que um site descubra o seu IP real mesmo com o proxy ligado.</small></span></label>
-          <label class="opt"><input type="checkbox" data-s="blockTrackers"> <span><b>Bloquear rastreadores</b><small>Google Analytics, DoubleClick, Facebook Pixel, Hotjar e afins.</small></span></label>
-          <label class="opt"><input type="checkbox" data-s="dnt"> <span><b>Pedir para não ser rastreado</b><small>Envia DNT e GPC em todas as páginas.</small></span></label>
-          <label class="opt"><input type="checkbox" data-s="denyPerms"> <span><b>Bloquear câmera, microfone, localização e notificações</b><small>O jogo não usa nenhum deles.</small></span></label>
-          <label class="opt"><input type="checkbox" data-s="clearOnExit"> <span><b>Limpar dados ao fechar</b><small>Apaga cookies, cache e armazenamento de todos os perfis ao sair (você precisa entrar de novo no jogo).</small></span></label>
-          <h4>Limpar dados de navegação</h4>
-          <div class="row wrap"><label>Perfil <select id="clr-prof"></select></label>
-            <label>O quê <select id="clr-what"><option value="cache">Cache (imagens e arquivos)</option><option value="cookies">Cookies (sai das contas)</option><option value="storage">Dados dos sites (inclui as configurações do Aoshi Pro)</option><option value="all">Tudo</option></select></label>
-            <button id="clr-go" class="ghost">Limpar</button></div>
-          <div class="hint" id="clr-info"></div>
-          <h4>Proxies</h4>
-          <div class="row"><span class="hint">Cada perfil tem o seu proxy e os seus cookies.</span><button id="set-proxies" class="ghost">Gerenciar proxies</button></div>
-        </section>
-        <section data-sec="down" hidden>
-          <h4>Pasta</h4>
-          <div class="row"><input class="full" id="down-dir" readonly><button id="down-pick" class="ghost">Alterar</button><button id="down-open" class="ghost">Abrir</button></div>
-          <label class="opt"><input type="checkbox" data-s="askDownload"> Perguntar onde salvar cada arquivo</label>
-        </section>
-        <section data-sec="ext" hidden>
-          <h4>Extensões do Chrome</h4>
-          <div class="hint">Abra a Chrome Web Store, escolha a extensão e clique em <b>Usar no Chrome</b>. Ela passa a valer em todas as abas, com qualquer proxy, e o botão dela aparece na barra, ao lado do endereço. A maioria das extensões funciona; uma ou outra que usa recurso muito específico do Chrome pode falhar.</div>
-          <div class="row"><button id="ext-store">Abrir Chrome Web Store</button><button id="ext-folder" class="ghost">Carregar pasta de extensão</button><span class="hint" id="ext-msg"></span></div>
-          <div id="ext-list" class="ext-list"></div>
-        </section>
-        <section data-sec="aoshi" hidden>
-          <h4>Script</h4>
-          <div class="kv"><span>Versão instalada</span><b id="set-script"></b></div>
-          <div class="kv"><span>Baixada em</span><b id="set-script-when"></b></div>
-          <h4>Conferir versão nova a cada</h4>
-          <select data-s="checkMin"><option value="1">1 minuto</option><option value="5">5 minutos</option><option value="15">15 minutos</option><option value="30">30 minutos</option><option value="60">1 hora</option></select>
-          <div class="row"><button id="set-check" class="ghost">Conferir agora</button><button id="set-reload" class="ghost">Recarregar abas</button></div>
-          <h4>Token do GitHub</h4>
-          <div class="row"><span class="hint" id="set-token-st"></span><button id="set-token" class="ghost">Trocar token</button><button id="set-token-clear" class="ghost">Remover</button></div>
-        </section>
-        <section data-sec="prog" hidden>
-          <h4>Aoshi Pro Desktop</h4>
-          <div class="kv"><span>Versão do programa</span><b id="set-ver"></b></div>
-          <div class="row"><button id="set-app-check" class="ghost">Procurar atualização</button><button id="set-releases" class="ghost">Ver versões</button></div>
-          <div class="hint" id="set-app-msg"></div>
-          <h4>Configurações</h4>
-          <div class="row"><span class="hint">Volta todas as opções desta tela ao padrão (não mexe nos proxies nem no token).</span><button id="set-reset" class="ghost">Restaurar padrão</button></div>
-        </section>
-        <section data-sec="atalhos" hidden>
-          <h4>Teclado</h4>
-          <div class="keys">
-            <span>Ctrl+T</span><span>Nova aba</span><span>Ctrl+W</span><span>Fechar a aba</span>
-            <span>F5 · Ctrl+R</span><span>Recarregar</span><span>Ctrl+F</span><span>Buscar na página</span>
-            <span>Ctrl + / Ctrl −</span><span>Aumentar / diminuir o zoom</span><span>Ctrl+0</span><span>Zoom padrão</span>
-            <span>F12</span><span>Ferramentas do desenvolvedor</span><span>Botão direito na aba</span><span>Trocar o proxy da aba</span>
-            <span>Botão do meio na aba</span><span>Fechar a aba</span>
-          </div>
-        </section>
+        <section data-sec="geral"><div class="sec-head"><h2>Geral</h2><p>Como o programa abre e se comporta.</p></div><h4>Ao abrir o programa</h4><div class="group"><div class="item radio"><div class="txt"><b>Reabrir as abas da última vez</b><small>Cada aba volta com o mesmo proxy.</small></div><div class="ctl"><input type="radio" name="startup" value="restore"></div></div><div class="item radio"><div class="txt"><b>Abrir a página inicial</b></div><div class="ctl"><input type="radio" name="startup" value="home"></div></div></div><h4>Navegação</h4><div class="group"><div class="item"><div class="txt"><b>Página inicial</b><small>Usada no botão ⌂ e nas abas novas.</small></div><div class="ctl"><input class="wide" data-s="home" spellcheck="false"></div></div><div class="item"><div class="txt"><b>Pesquisa na barra de endereço</b><small>O que você digita e não é um endereço vira uma pesquisa.</small></div><div class="ctl"><select data-s="search"><option value="google">Google</option><option value="bing">Bing</option><option value="duck">DuckDuckGo</option></select></div></div><div class="item"><div class="txt"><b>Zoom padrão das páginas</b><small>Cada aba pode ter o seu (Ctrl + / Ctrl −).</small></div><div class="ctl"><select data-s="zoom"></select></div></div></div><h4>Janela</h4><div class="group"><div class="item"><div class="txt"><b>Perguntar antes de fechar</b><small>Quando houver várias abas abertas.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="confirmClose"><span></span></label></div></div><div class="item"><div class="txt"><b>Abrir com o Windows</b><small>O Aoshi Pro abre sozinho quando o computador liga.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="autoStart"><span></span></label></div></div></div></section>
+        <section data-sec="aparencia" hidden><div class="sec-head"><h2>Aparência</h2><p>Cores e jeito das abas.</p></div><h4>Cor de destaque</h4><div class="group"><div class="item swatches"><div class="txt"><b>Cor dos botões e destaques</b></div><div class="ctl"><button class="swatch" data-accent="#7c3aed" style="--c:#7c3aed" title="#7c3aed"></button><button class="swatch" data-accent="#2563eb" style="--c:#2563eb" title="#2563eb"></button><button class="swatch" data-accent="#0891b2" style="--c:#0891b2" title="#0891b2"></button><button class="swatch" data-accent="#16a34a" style="--c:#16a34a" title="#16a34a"></button><button class="swatch" data-accent="#ea580c" style="--c:#ea580c" title="#ea580c"></button><button class="swatch" data-accent="#e11d48" style="--c:#e11d48" title="#e11d48"></button><button class="swatch" data-accent="#db2777" style="--c:#db2777" title="#db2777"></button><button class="swatch" data-accent="#64748b" style="--c:#64748b" title="#64748b"></button></div></div></div><h4>Abas</h4><div class="group"><div class="item"><div class="txt"><b>Mostrar o proxy em cada aba</b><small>O nome do proxy aparece ao lado do título.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="tabProxy"><span></span></label></div></div><div class="item"><div class="txt"><b>Abas compactas</b><small>Abas mais estreitas: cabem mais na barra.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="tabCompact"><span></span></label></div></div></div></section>
+        <section data-sec="priv" hidden><div class="sec-head"><h2>Privacidade e segurança</h2><p>Proteções que valem para todas as abas e proxies.</p></div><h4>Proteções</h4><div class="group"><div class="item"><div class="txt"><b>WebRTC só pelo proxy</b><small>Impede que um site descubra o seu IP real mesmo com o proxy ligado.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="webrtcProxy"><span></span></label></div></div><div class="item"><div class="txt"><b>Bloquear rastreadores</b><small>Google Analytics, DoubleClick, Facebook Pixel, Hotjar e afins.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="blockTrackers"><span></span></label></div></div><div class="item"><div class="txt"><b>Pedir para não ser rastreado</b><small>Envia DNT e GPC em todas as páginas.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="dnt"><span></span></label></div></div><div class="item"><div class="txt"><b>Bloquear câmera, microfone, localização e notificações</b><small>O jogo não usa nenhum deles.</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="denyPerms"><span></span></label></div></div><div class="item"><div class="txt"><b>Limpar dados ao fechar</b><small>Apaga cookies, cache e armazenamento de todos os proxies ao sair (você precisa entrar de novo no jogo).</small></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="clearOnExit"><span></span></label></div></div></div><h4>Limpar dados de navegação</h4><div class="group"><div class="item"><div class="txt"><b>Proxy</b></div><div class="ctl"><select id="clr-prof"></select></div></div><div class="item"><div class="txt"><b>O quê</b><small><span id="clr-info"></span></small></div><div class="ctl"><select id="clr-what"><option value="cache">Cache (imagens e arquivos)</option><option value="cookies">Cookies (sai das contas)</option><option value="storage">Dados dos sites (inclui as configurações do Aoshi Pro)</option><option value="all">Tudo</option></select></div></div><div class="item right"><div class="txt"><b></b></div><div class="ctl"><button id="clr-go" class="ghost">Limpar agora</button></div></div></div></section>
+        <section data-sec="proxy" hidden><div class="sec-head"><h2>Proxies</h2><p>Cada proxy tem os seus cookies e o seu login. Use um em cada aba.</p></div><div class="group"><div class="item"><div class="txt"><b><span id="set-px-count"></span></b><small>Colar uma lista grande, testar país e latência, numerar e escolher na hora de abrir a aba.</small></div><div class="ctl"><button id="set-proxies">Gerenciar proxies</button></div></div></div></section>
+        <section data-sec="down" hidden><div class="sec-head"><h2>Downloads</h2><p>Onde os arquivos baixados são salvos.</p></div><div class="group"><div class="item"><div class="txt"><b>Pasta</b><small><span id="down-dir-txt"></span></small></div><div class="ctl"><input id="down-dir" readonly hidden><button id="down-pick" class="ghost">Alterar</button><button id="down-open" class="ghost">Abrir</button></div></div><div class="item"><div class="txt"><b>Perguntar onde salvar cada arquivo</b></div><div class="ctl"><label class="sw"><input type="checkbox" data-s="askDownload"><span></span></label></div></div></div></section>
+        <section data-sec="ext" hidden><div class="sec-head"><h2>Extensões</h2><p>Extensões do Chrome: valem em todas as abas, com qualquer proxy.</p></div><div class="group"><div class="item"><div class="txt"><b>Chrome Web Store</b><small>Escolha a extensão e clique em <b>Usar no Chrome</b>. O botão dela aparece na barra, ao lado do endereço. A maioria funciona; uma ou outra que usa recurso muito específico do Chrome pode falhar.</small></div><div class="ctl"><button id="ext-store">Abrir a loja</button></div></div><div class="item"><div class="txt"><b>Extensão descompactada</b><small>Uma pasta com o arquivo manifest.json.<span class="hint" id="ext-msg"></span></small></div><div class="ctl"><button id="ext-folder" class="ghost">Carregar pasta</button></div></div></div><h4>Instaladas</h4><div id="ext-list" class="group ext-list"></div></section>
+        <section data-sec="aoshi" hidden><div class="sec-head"><h2>Aoshi Pro</h2><p>O script que entra nas páginas do Tribal Wars.</p></div><h4>Script</h4><div class="group"><div class="item"><div class="txt"><b>Versão instalada</b><small><span id="set-script-when"></span></small></div><div class="ctl"><b class="pill" id="set-script"></b></div></div><div class="item"><div class="txt"><b>Conferir versão nova a cada</b><small>Quando sai versão nova, as abas do jogo usam ela no próximo carregamento.</small></div><div class="ctl"><select data-s="checkMin"><option value="1">1 minuto</option><option value="5">5 minutos</option><option value="15">15 minutos</option><option value="30">30 minutos</option><option value="60">1 hora</option></select></div></div><div class="item right"><div class="txt"><b></b></div><div class="ctl"><button id="set-check" class="ghost">Conferir agora</button><button id="set-reload" class="ghost">Recarregar abas</button></div></div></div><h4>Token do GitHub</h4><div class="group"><div class="item"><div class="txt"><b><span id="set-token-st"></span></b><small>Fica guardado cifrado só neste computador.</small></div><div class="ctl"><button id="set-token" class="ghost">Trocar token</button><button id="set-token-clear" class="ghost">Remover</button></div></div></div></section>
+        <section data-sec="atalhos" hidden><div class="sec-head"><h2>Atalhos</h2><p>Teclado e mouse.</p></div><div class="group keys"><div class="item"><div class="txt"><b>Nova aba</b></div><div class="ctl"><kbd>Ctrl+T</kbd></div></div><div class="item"><div class="txt"><b>Fechar a aba</b></div><div class="ctl"><kbd>Ctrl+W</kbd><kbd>Botão do meio na aba</kbd></div></div><div class="item"><div class="txt"><b>Recarregar</b></div><div class="ctl"><kbd>F5</kbd><kbd>Ctrl+R</kbd></div></div><div class="item"><div class="txt"><b>Buscar na página</b></div><div class="ctl"><kbd>Ctrl+F</kbd></div></div><div class="item"><div class="txt"><b>Aumentar / diminuir o zoom</b></div><div class="ctl"><kbd>Ctrl +</kbd><kbd>Ctrl −</kbd></div></div><div class="item"><div class="txt"><b>Zoom padrão</b></div><div class="ctl"><kbd>Ctrl+0</kbd></div></div><div class="item"><div class="txt"><b>Trocar o proxy da aba</b></div><div class="ctl"><kbd>Botão direito na aba</kbd></div></div><div class="item"><div class="txt"><b>Ferramentas do desenvolvedor</b></div><div class="ctl"><kbd>F12</kbd></div></div></div></section>
+        <section data-sec="prog" hidden><div class="sec-head"><h2>Sobre</h2><p>Versões e manutenção do programa.</p></div><div class="about"><img src="logo.png" alt=""><div><b>Aoshi <span>Pro</span> Desktop</b><small id="set-about"></small></div></div><h4>Atualizações</h4><div class="group"><div class="item"><div class="txt"><b>Versão do programa</b><small><span id="set-app-msg"></span></small></div><div class="ctl"><b class="pill" id="set-ver"></b></div></div><div class="item right"><div class="txt"><b></b></div><div class="ctl"><button id="set-app-check" class="ghost">Procurar atualização</button><button id="set-releases" class="ghost">Ver versões</button></div></div></div><h4>Restaurar</h4><div class="group"><div class="item"><div class="txt"><b>Restaurar padrão</b><small>Volta todas as opções desta tela ao padrão (não mexe nos proxies, nas extensões nem no token).</small></div><div class="ctl"><button id="set-reset" class="ghost danger">Restaurar</button></div></div></div></section>
+        <div class="set-empty" hidden>Nada encontrado.</div>
       </div>
       <button class="icon set-x" data-close title="Fechar">✕</button>
+    </div>
+  </div>
+
+  <!-- Menu de extensões (botão da peça de quebra-cabeça) -->
+  <div class="modal pop" id="m-extmenu" hidden>
+    <div class="ext-menu">
+      <div class="em-head"><b>Extensões</b><span class="hint">Fixe para mostrar na barra</span></div>
+      <div id="em-list"></div>
+      <div class="em-foot"><button id="em-store" class="ghost">Chrome Web Store</button><button id="em-manage" class="ghost">Gerenciar extensões</button></div>
     </div>
   </div>
 <script src="ui.js"></script>
