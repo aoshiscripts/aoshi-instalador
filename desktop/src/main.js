@@ -37,10 +37,22 @@ const DEFAULTS = {
 };
 const S = () => Object.assign({}, DEFAULTS, store.settings || {});
 const SEARCH = { google: 'https://www.google.com/search?q=', bing: 'https://www.bing.com/search?q=', duck: 'https://duckduckgo.com/?q=' };
-function load() { try { store = Object.assign(store, JSON.parse(fs.readFileSync(DATA_FILE(), 'utf8'))); } catch (_) {} }
+function load() {
+  try { store = Object.assign(store, JSON.parse(fs.readFileSync(DATA_FILE(), 'utf8'))); } catch (_) {}
+  // usuário e senha dos proxies ficam cifrados no disco; na memória ficam normais
+  try { store.profiles = (store.profiles || []).map(p => p && p.proxy ? Object.assign({}, p, { proxy: Object.assign({}, p.proxy, { user: decCred(p.proxy.user), pass: decCred(p.proxy.pass) }) }) : p); } catch (_) {}
+}
+// Cifra do usuário/senha dos proxies (DPAPI do Windows pelo safeStorage, a mesma do token). Guarda o resultado
+// para não cifrar de novo a cada gravação (com milhares de proxies o arquivo é salvo muitas vezes).
+const credCache = new Map();
+function encCred(v) { if (!v) return ''; if (credCache.has(v)) return credCache.get(v); const e = 'pc1:' + encToken(String(v)); credCache.set(v, e); return e; }
+function decCred(v) { if (typeof v !== 'string' || !v.startsWith('pc1:')) return v || ''; const plain = decToken(v.slice(4)); if (plain) credCache.set(plain, v); return plain; }
+function storeJSON() {
+  return JSON.stringify(Object.assign({}, store, { profiles: (store.profiles || []).map(p => p && p.proxy ? Object.assign({}, p, { proxy: Object.assign({}, p.proxy, { user: encCred(p.proxy.user), pass: encCred(p.proxy.pass) }) }) : p) }));
+}
 let saveT = null;
-function save() { clearTimeout(saveT); saveT = setTimeout(() => { try { fs.writeFileSync(DATA_FILE(), JSON.stringify(store)); } catch (_) {} }, 300); }
-function saveNow() { clearTimeout(saveT); try { fs.writeFileSync(DATA_FILE(), JSON.stringify(store)); } catch (_) {} }
+function save() { clearTimeout(saveT); saveT = setTimeout(() => { try { fs.writeFileSync(DATA_FILE(), storeJSON()); } catch (_) {} }, 300); }
+function saveNow() { clearTimeout(saveT); try { fs.writeFileSync(DATA_FILE(), storeJSON()); } catch (_) {} }
 // token e código ficam cifrados/compactados no disco (o código não fica legível na pasta do programa)
 const encToken = t => { try { return safeStorage.isEncryptionAvailable() ? 'enc:' + safeStorage.encryptString(t).toString('base64') : 'b64:' + Buffer.from(t).toString('base64'); } catch (_) { return 'b64:' + Buffer.from(t).toString('base64'); } };
 const decToken = s => { try { if (!s) return ''; if (s.startsWith('enc:')) return safeStorage.decryptString(Buffer.from(s.slice(4), 'base64')); if (s.startsWith('b64:')) return Buffer.from(s.slice(4), 'base64').toString(); return s; } catch (_) { return ''; } };
