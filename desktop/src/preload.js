@@ -1,4 +1,4 @@
-// Aoshi Pro Desktop — roda no começo de cada página das abas (mundo isolado, mas com o mesmo DOM).
+// Fenrir Pro — roda no começo de cada página das abas (mundo isolado, mas com o mesmo DOM).
 // Faz o papel que o instalador do Tampermonkey fazia: redutores de ícones aplicados antes do mapa desenhar,
 // botão "Atualizar" do Hub, e os modelos do Hub guardados para todos os mundos.
 'use strict';
@@ -71,7 +71,7 @@ if (isTW) {
 }
 
 
-// ---------- Scripts de usuário (gerenciador do Aoshi Pro Desktop, no lugar do Tampermonkey) ----------
+// ---------- Scripts de usuário (gerenciador do Fenrir Pro, no lugar do Tampermonkey) ----------
 // Pergunta ao programa quais scripts valem para esta página e roda cada um no mundo da página, no momento do
 // @run-at. As funções GM_ falam com o programa por uma ponte que só aceita o token de cada script.
 if (/^https?:$/.test(location.protocol)) {
@@ -82,7 +82,7 @@ if (/^https?:$/.test(location.protocol)) {
     const J = v => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
     const wrap = sc => `(function(){
 const __b = window.__aoshiUS, __t = ${J(sc.token)}, __vals = ${J(sc.values || {})}, __res = ${J(sc.resources || {})};
-const GM_info = { script: { name: ${J(sc.name)}, version: ${J(sc.version)}, namespace: ${J(sc.namespace)}, description: ${J(sc.description)} }, scriptHandler: 'Aoshi Pro Desktop', version: '1' };
+const GM_info = { script: { name: ${J(sc.name)}, version: ${J(sc.version)}, namespace: ${J(sc.namespace)}, description: ${J(sc.description)} }, scriptHandler: 'Fenrir Pro', version: '1' };
 const unsafeWindow = window;
 const __call = (op, a) => __b ? __b.call(__t, op, a) : Promise.reject(new Error('ponte indisponível'));
 const __lis = {};

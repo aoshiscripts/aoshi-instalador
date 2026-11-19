@@ -1,8 +1,8 @@
 {
   "name": "aoshi-pro-desktop",
-  "productName": "Aoshi Pro",
-  "version": "1.6.0",
-  "description": "Navegador do Aoshi Pro: abas com proxy próprio e o Aoshi Pro já embutido, sempre atualizado.",
+  "productName": "Fenrir Pro",
+  "version": "1.7.0",
+  "description": "Fenrir Pro: navegador com abas e proxy próprio por aba, com o Aoshi Pro já embutido e sempre atualizado.",
   "author": "aoshiscripts",
   "license": "UNLICENSED",
   "main": "src/main.js",
@@ -23,8 +23,8 @@
   },
   "build": {
     "appId": "br.aoshi.pro.desktop",
-    "productName": "Aoshi Pro",
-    "artifactName": "AoshiPro-Setup-${version}.${ext}",
+    "productName": "Fenrir Pro",
+    "artifactName": "FenrirPro-Setup-${version}.${ext}",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -49,7 +49,7 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Aoshi Pro",
+      "shortcutName": "Fenrir Pro",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",

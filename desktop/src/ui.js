@@ -1,4 +1,4 @@
-// Barra do Aoshi Pro Desktop: abas, endereço, proxy de cada aba, perfis e token.
+// Barra do Fenrir Pro: abas, endereço, proxy de cada aba, perfis e token.
 'use strict';
 const $ = s => document.querySelector(s);
 const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -26,7 +26,7 @@ function renderTabs() {
     // extensões: botões da sessão (proxy) e da aba ativa
     if (extPart !== a.partition || extTab !== String(a.wcId)) { extPart = a.partition; extTab = String(a.wcId); observeExt(extPart); }
     $('#proxy-chip .dot').style.background = a.profileId ? (a.color || profColor(a.profileId)) : '#52525b';
-    document.title = `${a.title} — Aoshi Pro`;
+    document.title = `${a.title} — Fenrir Pro`;
     const zc = $('#zoom-chip'); zc.hidden = !a.zoom || a.zoom === (settings.zoom || 100); zc.textContent = (a.zoom || 100) + '%';
   }
 }
@@ -436,7 +436,7 @@ async function openSettings(sec) {
   $('#set-token-st').textContent = setInfo.hasToken ? 'Token salvo (cifrado neste computador).' : 'Nenhum token salvo.';
   $('#set-ver').textContent = 'v' + setInfo.version;
   $('#set-app-msg').textContent = '';
-  $('#set-brand-ver').textContent = 'Aoshi Pro Desktop v' + setInfo.version;
+  $('#set-brand-ver').textContent = 'Fenrir Pro v' + setInfo.version;
   $('#set-about').textContent = `Versão ${setInfo.version} · Chrome ${setInfo.chrome} · Electron ${setInfo.electron}`;
   $('#down-dir-txt').textContent = settings.downloadDir || setInfo.downloadsDefault;
   $('#set-px-count').textContent = setInfo.profileCount ? `${setInfo.profileCount} proxies cadastrados` : 'Nenhum proxy cadastrado';

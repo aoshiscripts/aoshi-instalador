@@ -1,4 +1,4 @@
-// Aoshi Pro Desktop — processo principal.
+// Fenrir Pro (antigo Aoshi Pro Desktop) — processo principal.
 // Abas (cada uma com perfil de proxy e cookies próprios), Aoshi Pro injetado nas páginas do Tribal Wars,
 // script baixado do repositório privado com o token de leitura do usuário, e atualização automática.
 'use strict';
@@ -11,6 +11,9 @@ const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
 const crypto = require('crypto');
+// Fenrir Pro: o nome do programa mudou, mas os dados (proxies, abas, sessões, scripts) continuam na pasta antiga "Aoshi Pro".
+try { app.setPath('userData', path.join(app.getPath('appData'), 'Aoshi Pro')); } catch (_) {}
+try { app.setName('Fenrir Pro'); } catch (_) {}
 
 const OWNER = 'aoshiscripts', REPO = 'aoshi-pro', FILE = 'AoshiPro-Hub.user.js', BRANCH = 'main';
 const API = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
@@ -185,7 +188,7 @@ function socksError(m) {
   if (/timed? ?out|ETIMEDOUT/i.test(m)) return 'o SOCKS5 demorou demais para responder';
   return 'falha no SOCKS5: ' + m.slice(0, 120);
 }
-const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electron\/\S+/, '').replace(/\s?aoshi-pro-desktop\/\S+/i, '').replace(/\s?Aoshi Pro\/\S+/i, '');
+const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electron\/\S+/, '').replace(/\s?aoshi-pro-desktop\/\S+/i, '').replace(/\s?Aoshi Pro\/\S+/i, '').replace(/\s?Fenrir Pro\/\S+/i, '');
 // ---------- Privacidade ----------
 // Rastreadores conhecidos bloqueados; pedidos levam "não rastrear" (DNT e GPC).
 const TRACKERS = /(^|\.)(google-analytics\.com|googletagmanager\.com|googletagservices\.com|doubleclick\.net|googlesyndication\.com|adservice\.google\.[a-z.]+|facebook\.net|connect\.facebook\.com|hotjar\.(com|io)|clarity\.ms|scorecardresearch\.com|quantserve\.com|criteo\.(com|net)|taboola\.com|outbrain\.com|adnxs\.com|amazon-adsystem\.com|mixpanel\.com|segment\.(io|com)|bat\.bing\.com|ads\.yahoo\.com|yandex\.ru\/metrika|mc\.yandex\.ru|tiktok\.com\/i18n\/pixel|analytics\.tiktok\.com|newrelic\.com|nr-data\.net)$/i;
@@ -302,7 +305,7 @@ async function setupExtensions(ses, part, profileId) {
     if (CWS) await withTimeout(CWS.installChromeWebStore({
       session: ses, extensionsPath: EXT_DIR(), autoUpdate: false, allowUnpackedExtensions: true,
       beforeInstall: async d => {
-        const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Adicionar extensão', 'Cancelar'], defaultId: 0, cancelId: 1, title: 'Aoshi Pro', message: `Adicionar "${d.localizedName}"?`, detail: 'A extensão vai valer em todas as abas, com qualquer proxy.', icon: d.icon });
+        const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Adicionar extensão', 'Cancelar'], defaultId: 0, cancelId: 1, title: 'Fenrir Pro', message: `Adicionar "${d.localizedName}"?`, detail: 'A extensão vai valer em todas as abas, com qualquer proxy.', icon: d.icon });
         return { action: r.response === 0 ? 'allow' : 'deny' };
       }
     }), 8000);
@@ -484,7 +487,7 @@ function createWindow() {
   try { if (ECE && ECE.handleCRXProtocol) ECE.handleCRXProtocol(session.defaultSession); } catch (e) { console.warn('[extensões] crx', e.message); }
   win = new BrowserWindow({
     width: b.width || 1400, height: b.height || 900, x: b.x, y: b.y, minWidth: 800, minHeight: 500,
-    title: 'Aoshi Pro', backgroundColor: THEME_BG[S().theme] || '#121216', autoHideMenuBar: true, show: false,
+    title: 'Fenrir Pro', backgroundColor: THEME_BG[S().theme] || '#121216', autoHideMenuBar: true, show: false,
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'ui-preload.js'), contextIsolation: true, sandbox: false }
   });
@@ -494,7 +497,7 @@ function createWindow() {
   win.on('resize', layout);
   win.on('close', e => {
     if (S().confirmClose && tabs.length > 1 && !win.__closing) {
-      const r = dialog.showMessageBoxSync(win, { type: 'question', buttons: ['Fechar', 'Cancelar'], defaultId: 0, cancelId: 1, title: 'Aoshi Pro', message: `Fechar o Aoshi Pro com ${tabs.length} abas abertas?` });
+      const r = dialog.showMessageBoxSync(win, { type: 'question', buttons: ['Fechar', 'Cancelar'], defaultId: 0, cancelId: 1, title: 'Fenrir Pro', message: `Fechar o Fenrir Pro com ${tabs.length} abas abertas?` });
       if (r !== 0) { e.preventDefault(); return; }
       win.__closing = true;
     }
@@ -1017,7 +1020,7 @@ ipcMain.handle('us:call', async (e, token, op, a) => {
     finally { clearTimeout(timer); }
   }
   if (op === 'clip') { require('electron').clipboard.writeText(String(a.text || '')); return true; }
-  if (op === 'notify') { try { const { Notification } = require('electron'); new Notification({ title: String(a.title || 'Aoshi Pro'), body: String(a.text || '') }).show(); } catch (_) {} return true; }
+  if (op === 'notify') { try { const { Notification } = require('electron'); new Notification({ title: String(a.title || 'Fenrir Pro'), body: String(a.text || '') }).show(); } catch (_) {} return true; }
   if (op === 'open') {
     const t = tabs.find(x => alive(x) && x.view.webContents === e.sender);
     if (!/^https?:/i.test(String(a.url || ''))) return false;
@@ -1127,9 +1130,9 @@ function refreshWindowsIcons() {
   try {
     const dir = path.join(app.getPath('userData'), 'icons');
     fs.mkdirSync(dir, { recursive: true });
-    ico = path.join(dir, `aoshi-pro-${ver}.ico`);
+    ico = path.join(dir, `fenrir-pro-${ver}.ico`);
     if (!fs.existsSync(ico)) fs.writeFileSync(ico, fs.readFileSync(path.join(__dirname, 'icon.ico')));
-    fs.readdirSync(dir).forEach(f => { if (/^aoshi-pro-.*\.ico$/i.test(f) && path.join(dir, f) !== ico) try { fs.unlinkSync(path.join(dir, f)); } catch (_) {} });
+    fs.readdirSync(dir).forEach(f => { if (/^(aoshi|fenrir)-pro-.*\.ico$/i.test(f) && path.join(dir, f) !== ico) try { fs.unlinkSync(path.join(dir, f)); } catch (_) {} });
   } catch (_) { ico = exe; }
   // procura em todas essas pastas qualquer atalho que abra o Aoshi Pro (o nome do atalho pode ser outro,
   // e a área de trabalho pode estar no OneDrive)
@@ -1146,12 +1149,19 @@ function refreshWindowsIcons() {
   const links = [];
   dirs.forEach(d => { try { fs.readdirSync(d).forEach(f => { if (/\.lnk$/i.test(f)) links.push(path.join(d, f)); }); } catch (_) {} });
   let changed = false;
-  links.forEach(lnk => {
+  links.forEach(lnk0 => {
+    let lnk = lnk0;
     try {
       if (!fs.existsSync(lnk)) return;
       const cur = shell.readShortcutLink(lnk);
       // só atalhos do Aoshi Pro (mesmo que apontem para uma instalação antiga em outra pasta)
-      if (!cur || !/aoshi[ -]?pro[^\\/]*\.exe$/i.test(cur.target || '')) return;
+      if (!cur || !/(aoshi|fenrir)[ -]?pro[^\\/]*\.exe$/i.test(cur.target || '')) return;
+      // atalho antigo "Aoshi Pro" na área de trabalho / menu Iniciar: vira "Fenrir Pro" (o da barra de tarefas só é reapontado, para não desafixar)
+      if (/^aoshi pro\.lnk$/i.test(path.basename(lnk)) && !/User Pinned/i.test(lnk)) {
+        const novo = path.join(path.dirname(lnk), 'Fenrir Pro.lnk');
+        if (fs.existsSync(novo)) { try { fs.unlinkSync(lnk); changed = true; } catch (_) {} return; }
+        try { fs.renameSync(lnk, novo); lnk = novo; changed = true; } catch (_) {}
+      }
       if (cur.icon === ico && path.resolve(cur.target).toLowerCase() === path.resolve(exe).toLowerCase()) return;
       changed = shell.writeShortcutLink(lnk, 'replace', Object.assign({}, cur, { target: exe, cwd: path.dirname(exe), icon: ico, iconIndex: 0 })) || changed;
     } catch (_) {}
@@ -1166,8 +1176,8 @@ function refreshWindowsIcons() {
   }
 }
 // erro inesperado no processo principal: registra e segue (sem a janela "A JavaScript error occurred")
-process.on('uncaughtException', e => { try { console.error('[Aoshi Pro]', e); fs.appendFileSync(path.join(app.getPath('userData'), 'erros.log'), new Date().toISOString() + ' ' + (e && e.stack || e) + '\n'); } catch (_) {} });
-process.on('unhandledRejection', e => { try { console.error('[Aoshi Pro]', e); } catch (_) {} });
+process.on('uncaughtException', e => { try { console.error('[Fenrir Pro]', e); fs.appendFileSync(path.join(app.getPath('userData'), 'erros.log'), new Date().toISOString() + ' ' + (e && e.stack || e) + '\n'); } catch (_) {} });
+process.on('unhandledRejection', e => { try { console.error('[Fenrir Pro]', e); } catch (_) {} });
 app.whenReady().then(async () => {
   load();
   refreshWindowsIcons();
