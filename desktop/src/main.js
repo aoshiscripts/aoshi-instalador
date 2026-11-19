@@ -23,6 +23,14 @@ if (!app.requestSingleInstanceLock()) { app.quit(); }
 // Privacidade: sem descoberta de IP local pelo WebRTC
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+// Sem vazamentos de rede fora do proxy: nada de pré-busca de DNS, pré-conexão, QUIC/UDP nem tráfego de fundo do
+// Chromium (verificações e componentes que saem pela conexão direta).
+app.commandLine.appendSwitch('dns-prefetch-disable');
+app.commandLine.appendSwitch('disable-quic');
+app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('disable-component-update');
+app.commandLine.appendSwitch('disable-domain-reliability');
+app.commandLine.appendSwitch('disable-features', 'NetworkPrediction,NoStatePrefetch,Prerender2,SpeculationRulesPrefetchFuture,PreconnectToSearch,AutofillServerCommunication,OptimizationHints,MediaRouter,DialMediaRouteProvider,InterestFeedContentSuggestions');
 
 // ---------- Armazenamento ----------
 const DATA_FILE = () => path.join(app.getPath('userData'), 'aoshi-desktop.json');
@@ -181,6 +189,8 @@ const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electro
 // Rastreadores conhecidos bloqueados; pedidos levam "não rastrear" (DNT e GPC).
 const TRACKERS = /(^|\.)(google-analytics\.com|googletagmanager\.com|googletagservices\.com|doubleclick\.net|googlesyndication\.com|adservice\.google\.[a-z.]+|facebook\.net|connect\.facebook\.com|hotjar\.(com|io)|clarity\.ms|scorecardresearch\.com|quantserve\.com|criteo\.(com|net)|taboola\.com|outbrain\.com|adnxs\.com|amazon-adsystem\.com|mixpanel\.com|segment\.(io|com)|bat\.bing\.com|ads\.yahoo\.com|yandex\.ru\/metrika|mc\.yandex\.ru|tiktok\.com\/i18n\/pixel|analytics\.tiktok\.com|newrelic\.com|nr-data\.net)$/i;
 function hardenSession(ses, part) {
+  // sem baixar dicionário do corretor (era um pedido a mais para o Google em cada sessão)
+  try { ses.setSpellCheckerEnabled(false); ses.setSpellCheckerDictionaryDownloadURL('https://127.0.0.1:9/'); } catch (_) {}
   ses.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (d, cb) => {
     // trava de proteção: aba com proxy só navega com o proxy conferido (nunca pela sua conexão)
     if (part && part !== 'persist:aoshi-direto') {
@@ -189,6 +199,18 @@ function hardenSession(ses, part) {
         if (d.resourceType === 'mainFrame' && d.webContents) showBlocked(d.webContents, part, d.url);
         recheckSoon(part);
         return cb({ cancel: true });
+      }
+      // antes de cada página: se a última conferência tem mais de 25 s, confere de novo e só então carrega
+      if (d.resourceType === 'mainFrame' && Date.now() - (g.at || 0) > GUARD_FRESH_MS) {
+        const prof = profileOf(part.replace('persist:aoshi-', ''));
+        if (prof && prof.proxy && prof.proxy.host) {
+          checkGuard(part, prof).then(r => {
+            if (r && r.state === 'ok') return cb({});
+            if (d.webContents) showBlocked(d.webContents, part, d.url);
+            cb({ cancel: true });
+          }, () => cb({ cancel: true }));
+          return;
+        }
       }
     }
     // link de script de usuário (.user.js) aberto numa aba: instala pelo gerenciador em vez de mostrar o código
@@ -596,6 +618,8 @@ function proxyGet(p, url, ms, method) {
 // Se o proxy cair, recusar a senha ou devolver o seu IP real, a aba fica bloqueada (nenhum pedido sai) e mostra
 // um aviso; volta sozinha quando o proxy voltar. O Chromium também está sem a opção de cair para conexão direta.
 const guard = new Map(); // partição → { state: 'ok'|'down'|'checking', ip, reason, at }
+const GUARD_EVERY_MS = 20000;   // confere o IP de cada proxy com aba aberta a cada 20 s
+const GUARD_FRESH_MS = 25000;   // e antes de carregar uma página, se a última conferência for mais velha que isso
 const guardRuns = new Map();
 async function checkGuard(part, prof) {
   if (guardRuns.has(part)) return guardRuns.get(part);
@@ -610,7 +634,7 @@ async function checkGuard(part, prof) {
       if (!ip) throw new Error('o proxy não respondeu');
       const mine = await directIp();
       if (mine && ip === mine) res = { state: 'down', reason: `o proxy devolveu o seu IP real (${ip})`, at: Date.now() };
-      else if (!mine) res = prev && prev.state === 'ok' && prev.ip === ip ? prev : { state: 'ok', ip, at: Date.now(), unverified: true };
+      else if (!mine) res = { state: 'ok', ip, at: Date.now(), unverified: true };
       else res = { state: 'ok', ip, at: Date.now() };
     } catch (e) {
       const m = String(e && e.message || e);
@@ -645,11 +669,11 @@ function showBlocked(wc, part, url) {
   const q = new URLSearchParams({ r: g.reason || 'conferindo o proxy…', p: prof ? `${prof.name} (${prof.proxy.host}:${prof.proxy.port})` : 'proxy apagado', u: url || '' });
   setImmediate(() => { try { if (!wc.isDestroyed()) wc.loadFile(path.join(__dirname, 'blocked.html'), { search: q.toString() }); } catch (_) {} });
 }
-// confere de novo, a cada minuto, os proxies das abas abertas
+// confere de novo, a cada 20 s, os proxies das abas abertas
 setInterval(() => {
   const parts = new Set(tabs.filter(t => alive(t) && t.profileId).map(t => 'persist:aoshi-' + t.profileId));
   parts.forEach(part => { const prof = profileOf(part.replace('persist:aoshi-', '')); if (prof && prof.proxy && prof.proxy.host) checkGuard(part, prof); else guard.set(part, { state: 'down', reason: 'o proxy desta aba foi apagado', at: Date.now() }); });
-}, 60000);
+}, GUARD_EVERY_MS);
 ipcMain.on('guard:retry', e => { const t = tabs.find(x => alive(x) && x.view.webContents === e.sender); if (t && t.profileId) { recheckAt.delete('persist:aoshi-' + t.profileId); recheckSoon('persist:aoshi-' + t.profileId); } });
 // IP da sua conexão sem proxy (para saber se um proxy está vazando o seu IP)
 let myIp = { ip: '', at: 0 };
