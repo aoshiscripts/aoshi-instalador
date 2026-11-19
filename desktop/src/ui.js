@@ -9,8 +9,14 @@ const profColor = id => (profiles.find(p => p.id === id) || {}).color || '#52525
 
 // ---------- Abas ----------
 function renderTabs() {
-  $('#tabs').innerHTML = state.tabs.map(t => `<div class="tab${t.id === state.active ? ' on' : ''}${t.loading ? ' loading' : ''}" data-id="${t.id}" title="${esc(t.title)} — ${esc(t.profileName)}">
-    <span class="dot" style="background:${t.profileId ? esc(t.color || profColor(t.profileId)) : '#52525b'}"></span><span class="t">${esc(t.title)}</span><span class="p">${esc(t.profileName)}</span><span class="x" data-x="${t.id}" title="Fechar (Ctrl+W)">✕</span></div>`).join('');
+  if (editingTab && document.querySelector('#tabs .tab-edit')) return; // não redesenha enquanto renomeia
+  const tabsHTML = state.tabs.map(t => {
+    const tip = [t.name ? `${t.name} — ${t.title}` : t.title, t.profileId ? `Proxy: ${t.profileName}${t.proxyHost ? ' (' + t.proxyHost + ')' : ''}${t.proxyIp ? ' · IP ' + t.proxyIp : ''}` : 'Sem proxy (conexão direta)', 'Duplo clique: renomear · botão direito: mais opções'].join('\n');
+    const mark = /^[a-z]{2}$/.test(t.country || '') ? `<img class="tflag" src="flags/${t.country}.svg" alt="">` : `<span class="dot" style="background:${t.profileId ? esc(t.color || profColor(t.profileId)) : '#52525b'}"></span>`;
+    return `<div class="tab${t.id === state.active ? ' on' : ''}${t.loading ? ' loading' : ''}${t.name ? ' named' : ''}" data-id="${t.id}" title="${esc(tip)}">
+    ${mark}<span class="t">${esc(t.name || t.title)}</span><span class="p">${esc(t.profileName)}</span><span class="x" data-x="${t.id}" title="Fechar (Ctrl+W)">✕</span></div>`;
+  }).join('');
+  if ($('#tabs').dataset.html !== tabsHTML) { $('#tabs').innerHTML = tabsHTML; $('#tabs').dataset.html = tabsHTML; }
   const a = active();
   if (a) {
     if (document.activeElement !== $('#addr')) $('#addr').value = a.url;
@@ -28,7 +34,32 @@ $('#tabs').addEventListener('click', e => {
   const t = e.target.closest('.tab'); if (t) aoshi.activate(t.dataset.id);
 });
 $('#tabs').addEventListener('auxclick', e => { const t = e.target.closest('.tab'); if (t && e.button === 1) aoshi.closeTab(t.dataset.id); });
-$('#tabs').addEventListener('contextmenu', e => { const t = e.target.closest('.tab'); if (t) { e.preventDefault(); aoshi.activate(t.dataset.id); openPick('change'); } });
+$('#tabs').addEventListener('contextmenu', e => { const t = e.target.closest('.tab'); if (t) { e.preventDefault(); aoshi.tabMenu(t.dataset.id); } });
+// renomear a aba: duplo clique (ou pelo botão direito)
+let editingTab = null;
+function startRename(id) {
+  const el = document.querySelector(`#tabs .tab[data-id="${CSS.escape(id)}"]`); if (!el) return;
+  const t = state.tabs.find(x => x.id === id) || {};
+  editingTab = id;
+  const span = el.querySelector('.t');
+  const inp = document.createElement('input');
+  inp.className = 'tab-edit'; inp.value = t.name || ''; inp.placeholder = 'Nome da aba'; inp.maxLength = 40;
+  span.replaceWith(inp); inp.focus(); inp.select();
+  let done = false;
+  const finish = save => { if (done) return; done = true; editingTab = null; $('#tabs').dataset.html = ''; if (save) aoshi.renameTab(id, inp.value); renderTabs(); };
+  inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') finish(true); else if (ev.key === 'Escape') finish(false); });
+  inp.addEventListener('blur', () => finish(true));
+  inp.addEventListener('mousedown', ev => ev.stopPropagation());
+  inp.addEventListener('click', ev => ev.stopPropagation());
+}
+// duplo clique feito à mão: o primeiro clique ativa a aba e a barra se redesenha
+let lastDown = { id: '', at: 0 };
+$('#tabs').addEventListener('mousedown', e => {
+  const t = e.target.closest('.tab'); if (!t || e.button !== 0 || e.target.closest('.x, .tab-edit')) return;
+  const now = Date.now();
+  if (lastDown.id === t.dataset.id && now - lastDown.at < 450) { e.preventDefault(); lastDown = { id: '', at: 0 }; setTimeout(() => startRename(t.dataset.id), 30); return; }
+  lastDown = { id: t.dataset.id, at: now };
+});
 
 // ---------- Navegação ----------
 $('#back').onclick = () => state.active && aoshi.nav(state.active, 'back');
@@ -385,6 +416,8 @@ $('#btn-update').onclick = async () => { const msg = await aoshi.checkCode(); no
 aoshi.on((ch, d) => {
   if (ch === 'tabs') { state = d; renderTabs(); }
   else if (ch === 'profiles') { profiles = d.profiles || []; renderTabs(); }
+  else if (ch === 'tab-rename') startRename(d.id);
+  else if (ch === 'tab-proxy') openPick('change');
   else if (ch === 'extensions') { extNames = d.list || []; observeExt(extPart); renderExtMenu(); if (!$('#m-set').hidden && !document.querySelector('section[data-sec="ext"]').hidden) renderExt(d.list || []); }
   else if (ch === 'new-tab') openPick('new');
   else if (ch === 'find-open') openFind();

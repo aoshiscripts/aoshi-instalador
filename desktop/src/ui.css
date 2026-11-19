@@ -233,3 +233,9 @@ body.tab-compact .tab { min-width:90px; max-width:160px; height:30px; }
 .em-foot button { flex:1; }
 .item .txt small b { display:inline; font-size:inherit; font-weight:700; }
 .set-body.searching section:not([hidden]) { margin-bottom:26px; }
+
+/* ---------- Abas com nome e bandeira do proxy ---------- */
+.tab .tflag { width:16px; height:12px; border-radius:2px; flex:none; object-fit:cover; box-shadow:0 0 0 1px rgba(255,255,255,.15); }
+.tab.named .t { font-weight:700; color:#fff; }
+.tab.named { box-shadow:inset 0 2px 0 var(--acc2); }
+.tab .tab-edit { flex:1; min-width:0; height:22px; padding:0 6px; font-weight:600; border-color:var(--acc2); }

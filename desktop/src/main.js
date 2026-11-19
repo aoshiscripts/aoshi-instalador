@@ -213,7 +213,7 @@ function layout() {
 }
 function tabInfo(t) {
   const wc = t.view.webContents, p = profileOf(t.profileId);
-  return { wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
+  return { name: t.name || '', country: p && p.country || '', proxyHost: p && p.proxy ? `${p.proxy.host}:${p.proxy.port}` : '', proxyIp: p && p.ip || '', wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
 }
 function pushTabs() { ui('tabs', { tabs: tabs.map(tabInfo), active: activeId }); persistTabs(); selectExtTab(); }
 let lastSel = null;
@@ -221,13 +221,13 @@ function selectExtTab() {
   const t = tabs.find(x => x.id === activeId); if (!t || lastSel === t.id) return; lastSel = t.id;
   try { const e = extOf.get('persist:aoshi-' + (t.profileId || 'direto')); e && e.selectTab(t.view.webContents); } catch (_) {}
 }
-function persistTabs() { store.tabs = tabs.map(t => ({ profileId: t.profileId || '', url: t.view.webContents.getURL() || HOME })); save(); }
+function persistTabs() { store.tabs = tabs.map(t => ({ profileId: t.profileId || '', url: t.view.webContents.getURL() || HOME, name: t.name || '' })); save(); }
 
-async function newTab(profileId, url, activate = true) {
+async function newTab(profileId, url, activate = true, name = '') {
   const ses = await sessionFor(profileId);
   // sandbox ligado: necessário para a API das extensões nas páginas
   const view = new WebContentsView({ webPreferences: { session: ses, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), spellcheck: false } });
-  const t = { id: crypto.randomUUID(), profileId: profileId || '', view };
+  const t = { id: crypto.randomUUID(), profileId: profileId || '', view, name: String(name || '').slice(0, 40) };
   tabs.push(t);
   win.contentView.addChildView(view);
   const wc = view.webContents;
@@ -284,7 +284,7 @@ async function setTabProfile(id, profileId) {
   const i = tabs.indexOf(t);
   try { win.contentView.removeChildView(t.view); t.view.webContents.close(); } catch (_) {}
   tabs.splice(i, 1);
-  const nt = await newTab(profileId, url, activeId === id);
+  const nt = await newTab(profileId, url, activeId === id, t.name);
   tabs.splice(tabs.indexOf(nt), 1); tabs.splice(i, 0, nt);
   if (activeId === id) activeId = nt.id;
   layout(); pushTabs();
@@ -314,7 +314,7 @@ function createWindow() {
   win.webContents.on('did-finish-load', async () => {
     const st = S();
     const list = st.startup === 'restore' && store.tabs && store.tabs.length ? store.tabs : [{ profileId: '', url: st.home || HOME }];
-    for (let i = 0; i < list.length; i++) await newTab(list[i].profileId, list[i].url, i === 0);
+    for (let i = 0; i < list.length; i++) await newTab(list[i].profileId, list[i].url, i === 0, list[i].name);
     ui('profiles', { profiles: store.profiles });
     ui('code-info', { version: versionOf(code()), when: store.when, hasToken: !!decToken(store.token) });
     checkCode(true);
@@ -324,6 +324,21 @@ function createWindow() {
 // ---------- Mensagens da barra (ui.html) ----------
 ipcMain.handle('tab:new', (_, profileId, url) => newTab(profileId, url).then(() => true));
 ipcMain.handle('tab:close', (_, id) => closeTab(id));
+// nome da aba (ex.: "br143 aoshi") — aparece no lugar do título da página
+ipcMain.handle('tab:rename', (_, id, name) => { const t = tabs.find(x => x.id === id); if (t) { t.name = String(name || '').trim().slice(0, 40); pushTabs(); } });
+// botão direito na aba: menu do programa (fica por cima da página)
+ipcMain.handle('tab:menu', (_, id) => {
+  const t = tabs.find(x => x.id === id); if (!t) return;
+  Menu.buildFromTemplate([
+    { label: 'Renomear aba…', click: () => ui('tab-rename', { id }) },
+    ...(t.name ? [{ label: 'Tirar o nome', click: () => { t.name = ''; pushTabs(); } }] : []),
+    { label: 'Trocar o proxy…', click: () => { activeId = id; layout(); pushTabs(); ui('tab-proxy', { id }); } },
+    { label: 'Duplicar aba', click: () => newTab(t.profileId, t.view.webContents.getURL() || HOME, true, t.name ? t.name + ' 2' : '') },
+    { type: 'separator' },
+    { label: 'Recarregar', click: () => t.view.webContents.reload() },
+    { label: 'Fechar aba', click: () => closeTab(id) }
+  ]).popup({ window: win });
+});
 ipcMain.handle('tab:activate', (_, id) => { activeId = id; layout(); pushTabs(); selectExtTab(); });
 ipcMain.handle('tab:profile', (_, id, profileId) => setTabProfile(id, profileId));
 ipcMain.handle('tab:nav', (_, id, what, arg) => {
