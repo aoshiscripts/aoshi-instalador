@@ -329,7 +329,7 @@ const extIcon = (id, mod) => `crx://extension-icon/${encodeURIComponent(id)}/32/
 const actInfo = a => Object.assign({}, a, (a.tabs || {})[extTab] || {});
 const extName = id => (extNames.find(e => e.id === id) || {}).name || '';
 const extPkgIcon = id => (extNames.find(e => e.id === id) || {}).icon || '';
-// se o ícone do botão não carregar, usa o ícone do pacote da extensão
+// a barra usa o ícone oficial da extensão (do pacote); se não tiver, o ícone do botão; se esse falhar, o do pacote
 function iconFallback(root) {
   root.querySelectorAll('img[data-ext-icon]').forEach(img => {
     if (img.dataset.fb) return; img.dataset.fb = '1';
@@ -341,7 +341,7 @@ function iconFallback(root) {
 function renderExtBar() {
   const u = unpinned();
   const bar = $('#ext-bar');
-  bar.innerHTML = (extState.actions || []).filter(a => !u.has(a.id)).map(a => { const i = actInfo(a); return `<button class="icon ext-btn" data-ext="${esc(a.id)}" title="${esc(i.title || extName(a.id))}"><img src="${extIcon(a.id, i.iconModified)}" data-ext-icon="${esc(a.id)}" alt=""><span class="badge"${i.text ? '' : ' hidden'} style="background:${esc(i.color || 'var(--acc)')}">${esc(i.text || '')}</span></button>`; }).join('');
+  bar.innerHTML = (extState.actions || []).filter(a => !u.has(a.id)).map(a => { const i = actInfo(a); return `<button class="icon ext-btn" data-ext="${esc(a.id)}" title="${esc(i.title || extName(a.id))}"><img src="${extPkgIcon(a.id) || extIcon(a.id, i.iconModified)}" data-ext-icon="${esc(a.id)}" alt=""><span class="badge"${i.text ? '' : ' hidden'} style="background:${esc(i.color || 'var(--acc)')}">${esc(i.text || '')}</span></button>`; }).join('');
   iconFallback(bar);
 }
 function renderExtMenu() {
@@ -349,13 +349,15 @@ function renderExtMenu() {
   const u = unpinned(), acts = new Map((extState.actions || []).map(a => [a.id, a]));
   const list = extNames.length ? extNames : (extState.actions || []).map(a => ({ id: a.id, name: a.title || a.id }));
   setTimeout(() => iconFallback(box), 0);
-  box.innerHTML = list.length ? list.map(e => `<div class="em-item" data-ext="${esc(e.id)}"><img src="${extIcon(e.id)}" data-ext-icon="${esc(e.id)}" alt=""><span class="n">${esc(e.name)}</span><button class="icon pin${u.has(e.id) ? '' : ' on'}" data-pin-toggle="${esc(e.id)}" title="${u.has(e.id) ? 'Fixar na barra' : 'Tirar da barra'}"><svg viewBox="0 0 24 24" width="15" height="15" fill="${u.has(e.id) ? 'none' : 'currentColor'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2h-4v5l-1 1-1-1v-5H7v-2l3-3z"/></svg></button></div>`).join('') : '<div class="em-empty">Nenhuma extensão instalada.<br>Abra a Chrome Web Store para adicionar.</div>';
+  box.innerHTML = list.length ? list.map(e => `<div class="em-item" data-ext="${esc(e.id)}"><img src="${extPkgIcon(e.id) || extIcon(e.id)}" data-ext-icon="${esc(e.id)}" alt=""><span class="n">${esc(e.name)}</span><button class="icon pin${u.has(e.id) ? '' : ' on'}" data-pin-toggle="${esc(e.id)}" title="${u.has(e.id) ? 'Fixar na barra' : 'Tirar da barra'}"><svg viewBox="0 0 24 24" width="15" height="15" fill="${u.has(e.id) ? 'none' : 'currentColor'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2h-4v5l-1 1-1-1v-5H7v-2l3-3z"/></svg></button></div>`).join('') : '<div class="em-empty">Nenhuma extensão instalada.<br>Abra a Chrome Web Store para adicionar.</div>';
 }
 function observeExt(part) {
   if (!window.browserAction) return;
   if (extObserved !== part) { try { if (extObserved) browserAction.removeObserver(extObserved); browserAction.addObserver(part); } catch (_) {} extObserved = part; }
   browserAction.getState(part).then(st => { extState = st || { actions: [] }; renderExtBar(); }).catch(() => {});
 }
+// nomes e ícones oficiais logo ao abrir (a barra usa o ícone do pacote)
+setTimeout(() => aoshi.extList().then(l => { if (l && l.length) { extNames = l; renderExtBar(); renderExtMenu(); } }).catch(() => {}), 800);
 if (window.browserAction) browserAction.addEventListener('update', st => { if (st) extState = st; renderExtBar(); renderExtMenu(); });
 function activateExt(id, el) {
   if (!window.browserAction) return;
