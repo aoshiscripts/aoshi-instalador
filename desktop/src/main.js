@@ -292,10 +292,11 @@ async function setupExtensions(ses, part, profileId) {
     const ext = new ECE({
       session: ses,
       // abas e janelas que as extensões pedem viram abas deste mesmo proxy
-      createTab: async details => { const t = await newTab(profileId, details.url || S().home || HOME, details.active !== false, '', { shared: true }); return [t.view.webContents, win]; },
+      // extensão que abre aba sozinha logo que o navegador abre (boas-vindas, novidades…): ignora nos primeiros 20 s
+      createTab: async details => { if (extBootBlock(details)) throw new Error('aba automática da extensão ignorada ao abrir o navegador'); const t = await newTab(profileId, details.url || S().home || HOME, details.active !== false, '', { shared: true }); return [t.view.webContents, win]; },
       selectTab: wc => { const t = tabs.find(x => alive(x) && x.view.webContents === wc); if (t) { activeId = t.id; layout(); pushTabs(); } },
       removeTab: wc => { const t = tabs.find(x => alive(x) && x.view.webContents === wc); if (t) closeTab(t.id); else setTimeout(pushTabs, 0); },
-      createWindow: async details => { for (const u of [].concat(details.url || S().home || HOME)) await newTab(profileId, u, true, '', { shared: true }); return win; },
+      createWindow: async details => { if (extBootBlock(details)) throw new Error('janela automática da extensão ignorada ao abrir o navegador'); for (const u of [].concat(details.url || S().home || HOME)) await newTab(profileId, u, true, '', { shared: true }); return win; },
       removeWindow: () => {}
     });
     extOf.set(part, ext);
@@ -347,6 +348,14 @@ async function sessionFor(profileId) {
 // ---------- Janela e abas ----------
 let win = null;
 const tabs = []; // { id, profileId, view }
+let booting = false;
+const BOOT_AT = Date.now();
+function extBootBlock(details) {
+  if (Date.now() - BOOT_AT > 20000) return false;
+  const u = [].concat((details && details.url) || '')[0] || '';
+  try { console.warn('[extensões] aba automática ignorada na abertura:', u); fs.appendFileSync(path.join(app.getPath('userData'), 'erros.log'), new Date().toISOString() + ' aba automática de extensão ignorada na abertura: ' + u + '\n'); } catch (_) {}
+  return true;
+}
 let activeId = null;
 const ui = (ch, data) => { if (win && !win.isDestroyed()) win.webContents.send('ui', ch, data || {}); };
 let modalOpen = false; // janelinhas da barra ficam por baixo das abas: esconde a aba enquanto uma está aberta
@@ -371,7 +380,8 @@ function pruneTabs() {
 }
 function pushTabs() {
   pruneTabs();
-  if (!tabs.length && win && !win.isDestroyed()) { newTab('', S().home || HOME); return; }
+  // durante a abertura as abas salvas ainda estão sendo recriadas: não inventa uma aba inicial extra (era ela que se acumulava a cada abertura)
+  if (!tabs.length && win && !win.isDestroyed()) { if (booting) return; newTab('', S().home || HOME); return; }
   if (!tabs.some(t => t.id === activeId) && tabs.length) { activeId = tabs[tabs.length - 1].id; layout(); }
   persistTabs();
   ui('tabs', { tabs: tabs.map(t => { try { return tabInfo(t); } catch (_) { return null; } }).filter(Boolean), active: activeId, links: linkInfo() }); selectExtTab();
@@ -504,9 +514,18 @@ function createWindow() {
     store.win = Object.assign(win.getNormalBounds(), { max: win.isMaximized() }); persistTabs(); saveNow();
   });
   win.webContents.on('did-finish-load', async () => {
+    // a barra pode recarregar (did-finish-load de novo): as abas só são recriadas uma vez
+    if (win.__tabsRestored) { pushTabs(); return; }
+    win.__tabsRestored = true;
     const st = S();
-    const list = st.startup === 'restore' && store.tabs && store.tabs.length ? store.tabs : [{ profileId: '', url: st.home || HOME }];
-    for (let i = 0; i < list.length; i++) await newTab(list[i].profileId, list[i].url, i === 0, list[i].name);
+    const seen = new Set();
+    // limpa as cópias que o erro antigo deixou: abas sem proxy e sem nome repetidas no mesmo endereço viram uma só
+    const saved = (st.startup === 'restore' && Array.isArray(store.tabs) ? store.tabs : []).filter(t => { if (!t || t.profileId || t.name) return !!t; const k = String(t.url || ''); if (seen.has(k)) return false; seen.add(k); return true; });
+    const list = saved.length ? saved : [{ profileId: '', url: st.home || HOME }];
+    booting = true;
+    try { for (let i = 0; i < list.length; i++) await newTab(list[i].profileId, list[i].url, i === 0, list[i].name); }
+    finally { booting = false; }
+    pushTabs();
     ui('profiles', { profiles: store.profiles });
     ui('code-info', { version: versionOf(code()), when: store.when, hasToken: !!decToken(store.token) });
     checkCode(true);
