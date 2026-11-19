@@ -519,35 +519,63 @@ function proxyGet(p, url, ms, method) {
     req.end();
   }));
 }
+// IP da sua conexão sem proxy (para saber se um proxy está vazando o seu IP)
+let myIp = { ip: '', at: 0 };
+async function directIp() {
+  if (myIp.ip && Date.now() - myIp.at < 10 * 60000) return myIp.ip;
+  try { const r = await session.defaultSession.fetch('https://api.ipify.org?format=json', { cache: 'no-store' }); const j = await r.json(); if (net.isIP(j.ip)) myIp = { ip: j.ip, at: Date.now() }; } catch (_) {}
+  return myIp.ip;
+}
+// país de um IP: pergunta a vários serviços (direto, sem proxy) e fica com o que a maioria disser
+const geoCache = new Map();
+async function geoOf(ip) {
+  if (geoCache.has(ip)) return geoCache.get(ip);
+  const ask = async (url, rd) => { try { const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000); const r = await session.defaultSession.fetch(url, { cache: 'no-store', signal: ctl.signal }); clearTimeout(tm); const v = rd(await r.json()); return /^[A-Za-z]{2}$/.test(v && v.cc || '') ? { cc: v.cc.toUpperCase(), name: v.name || '' } : null; } catch (_) { return null; } };
+  const got = (await Promise.all([
+    ask(`https://api.country.is/${ip}`, j => ({ cc: j.country })),
+    ask(`https://ipwho.is/${ip}?fields=success,country,country_code`, j => j.success === false ? null : { cc: j.country_code, name: j.country }),
+    ask(`https://ipinfo.io/${ip}/json`, j => ({ cc: j.country })),
+    ask(`https://freeipapi.com/api/json/${ip}`, j => ({ cc: j.countryCode, name: j.countryName })),
+    ask(`https://ipapi.co/${ip}/json/`, j => j.error ? null : { cc: j.country_code, name: j.country_name })
+  ])).filter(Boolean);
+  const votes = {}; got.forEach(g => { votes[g.cc] = (votes[g.cc] || 0) + 1; });
+  const cc = Object.keys(votes).sort((x, y) => votes[y] - votes[x])[0] || '';
+  const out = { cc, name: (got.find(g => g.cc === cc && g.name) || {}).name || '' };
+  if (cc) geoCache.set(ip, out);
+  return out;
+}
 ipcMain.handle('profiles:test', async (_, p) => {
   if (!p || !p.proxy || !p.proxy.host) return { ok: false, message: 'sem endereço' };
   const t0 = Date.now();
   try {
-    let geo = null; const errs = [];
-    for (const src of [
-      ['https://ipwho.is/?fields=success,ip,country,country_code', j => j.success !== false && j.ip ? { ip: j.ip, cc: j.country_code, name: j.country } : null],
-      ['https://api.ipify.org?format=json', j => j.ip ? { ip: j.ip } : null],
-      ['https://ipapi.co/json/', j => j.ip ? { ip: j.ip, cc: j.country_code, name: j.country_name } : null]
+    // 1) IP de saída visto pela internet, pedido PELO proxy
+    let ip = '', errs = [];
+    for (const [url, rd] of [
+      ['https://api.ipify.org?format=json', t => JSON.parse(t).ip],
+      ['https://ipv4.icanhazip.com/', t => t.trim()],
+      ['https://ipwho.is/?fields=ip', t => JSON.parse(t).ip]
     ]) {
       if (Date.now() - t0 > 40000) break;
       try {
-        const r = await proxyGet(p, src[0], 15000);
-        let j = null; try { j = JSON.parse(r.text); } catch (_) {}
-        geo = j && src[1](j); if (geo) break;
+        const r = await proxyGet(p, url, 15000);
+        let v = ''; try { v = String(rd(r.text) || '').trim(); } catch (_) {}
+        if (net.isIP(v)) { ip = v; break; }
         errs.push('resposta sem IP (' + r.status + ')');
       } catch (e) {
         const m = String(e && e.message || e); errs.push(m);
-        // erro do próprio proxy (senha, endereço, porta): não adianta tentar outro site
         if (/^407$|PROXY_CONNECTION_FAILED|NAME_NOT_RESOLVED|^SOCKS .*auth/i.test(m)) break;
       }
     }
-    if (!geo) throw new Error(errs.join(' | ') || 'sem resposta');
-    // país quando o site que respondeu só deu o IP
-    if (!geo.cc) { try { const r = await proxyGet(p, 'https://ipwho.is/' + geo.ip + '?fields=country,country_code', 10000); const j = JSON.parse(r.text); geo.cc = j.country_code; geo.name = j.country; } catch (_) {} }
+    if (!ip) throw new Error(errs.join(' | ') || 'sem resposta');
+    // 2) se o IP for o seu próprio, o tráfego não passou pelo proxy
+    const mine = await directIp();
+    if (mine && mine === ip) return { ok: false, message: `o proxy deixou passar o seu IP real (${ip}); ele não está escondendo a conexão` };
+    // 3) país do IP: votação entre vários bancos de localização (um só às vezes erra)
+    const geo = await geoOf(ip);
     // latência: ida e volta até o Tribal Wars por este proxy (melhor de 2)
     let best = Infinity;
     for (let i = 0; i < 2; i++) { const s0 = performance.now(); try { await proxyGet(p, 'https://www.tribalwars.com.br/favicon.ico', 10000, 'HEAD'); best = Math.min(best, performance.now() - s0); } catch (_) {} }
-    return { ok: true, ip: geo.ip, country: String(geo.cc || '').toLowerCase(), countryName: geo.name || '', latency: Number.isFinite(best) ? Math.round(best) : null };
+    return { ok: true, ip, country: String(geo.cc || '').toLowerCase(), countryName: geo.name || '', latency: Number.isFinite(best) ? Math.round(best) : null };
   } catch (e) {
     const m = String(e && e.message || 'sem resposta');
     return { ok: false, message: /^SOCKS /.test(m) ? socksError(m) : proxyError(m) };

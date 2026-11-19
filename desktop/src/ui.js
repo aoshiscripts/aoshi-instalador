@@ -183,7 +183,7 @@ function pump() {
     running++; testing.add(id); renderRow(id);
     aoshi.testProfile(p).then(r => {
       const cur = profiles.find(x => x.id === id); if (!cur) return;
-      Object.assign(cur, r.ok ? { status: 'ok', ip: r.ip, country: r.country || cur.country || '', countryName: r.countryName || cur.countryName || '', latency: r.latency, error: '' } : { status: 'bad', latency: null, error: r.message || 'não conectou' }, { testedAt: Date.now() });
+      Object.assign(cur, r.ok ? { status: 'ok', ip: r.ip, country: r.country || '', countryName: r.countryName || '', latency: r.latency, error: '' } : { status: 'bad', latency: null, error: r.message || 'não conectou' }, { testedAt: Date.now() });
     }).catch(() => {}).finally(() => {
       running--; testing.delete(id); renderRow(id); updateStat(); saveSoon(); pump();
     });
@@ -435,7 +435,9 @@ aoshi.on((ch, d) => {
   else if (ch === 'profiles') {
     profiles = d.profiles || []; renderTabs();
     // 1.4.7: o teste antigo dava 407 falso em proxy HTTP com senha → testa de novo esses, uma vez
-    if (!localStorage.getItem('px-retest-147')) { localStorage.setItem('px-retest-147', '1'); const again = profiles.filter(p => p.status === 'bad' && /407|usuário ou a senha/.test(p.error || '')); if (again.length) testList(again); }
+    // 1.4.9: país detectado de novo com a votação entre serviços
+    if (!localStorage.getItem('px-geo-149')) { localStorage.setItem('px-geo-149', '1'); localStorage.setItem('px-retest-147', '1'); const again = profiles.filter(p => p.status === 'ok' || (p.status === 'bad' && /407|usuário ou a senha/.test(p.error || ''))); if (again.length) testList(again); }
+    else if (!localStorage.getItem('px-retest-147')) { localStorage.setItem('px-retest-147', '1'); const again = profiles.filter(p => p.status === 'bad' && /407|usuário ou a senha/.test(p.error || '')); if (again.length) testList(again); }
   }
   else if (ch === 'tab-rename') startRename(d.id);
   else if (ch === 'tab-proxy') openPick('change');
