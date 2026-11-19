@@ -644,3 +644,6 @@ document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); }
 });
 aoshi.getSettings().then(i => { settings = i.settings; });
+
+// engrenagem: giro rápido ao clicar
+$('#btn-settings').addEventListener('click', e => { const b = e.currentTarget; b.classList.remove('kick'); void b.offsetWidth; b.classList.add('kick'); setTimeout(() => b.classList.remove('kick'), 600); });

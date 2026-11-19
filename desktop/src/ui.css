@@ -305,3 +305,14 @@ body.tab-compact .tab { min-width:90px; max-width:160px; height:30px; }
 .px-filt label { display:inline-flex; align-items:center; gap:6px; color:var(--meta); font-size:12px; }
 .px-filt select { padding:4px 6px; }
 .px-filt button:disabled, .px-filt select:disabled { opacity:.45; cursor:default; }
+
+/* engrenagem das configurações: gira devagar, acelera e brilha ao passar o mouse, dá um giro ao clicar */
+@keyframes gearSpin { to { transform:rotate(360deg); } }
+@keyframes gearKick { 0% { transform:rotate(0) scale(1); } 40% { transform:rotate(200deg) scale(.86); } 100% { transform:rotate(360deg) scale(1); } }
+#btn-settings.gear { width:32px; height:30px; display:inline-flex; align-items:center; justify-content:center; border-radius:9px; color:#c4b5fd; transition:background .2s, color .2s, box-shadow .2s; }
+#btn-settings.gear svg { overflow:visible; }
+#btn-settings.gear .g-rot { transform-origin:12px 12px; transform-box:view-box; animation:gearSpin 14s linear infinite; }
+#btn-settings.gear:hover { color:#fff; background:rgb(124 58 237 / .22); box-shadow:0 0 0 1px rgb(167 139 250 / .45), 0 0 12px rgb(124 58 237 / .55); }
+#btn-settings.gear:hover .g-rot { animation-duration:2.4s; filter:drop-shadow(0 0 3px rgb(196 181 253 / .9)); }
+#btn-settings.gear.kick .g-rot { animation:gearKick .55s cubic-bezier(.2,.8,.2,1) 1; }
+@media (prefers-reduced-motion: reduce) { #btn-settings.gear .g-rot { animation:none; } }
