@@ -269,5 +269,5 @@ body.tab-compact .tab { min-width:90px; max-width:160px; height:30px; }
 .lk-pn { display:flex; gap:6px; align-items:baseline; min-width:0; }
 .ltag { white-space:nowrap; }
 .pick .n { white-space:nowrap; flex:none; }
-.pick .ltag { margin-left:0; overflow:hidden; text-overflow:ellipsis; max-width:190px; flex:0 1 auto; }
+.pick .ltag { margin-left:0; overflow:hidden; text-overflow:ellipsis; max-width:320px; flex:0 1 auto; }
 .pick .m { white-space:nowrap; }
