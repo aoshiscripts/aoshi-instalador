@@ -223,8 +223,8 @@ async function setupExtensions(ses, part, profileId) {
       session: ses,
       // abas e janelas que as extensões pedem viram abas deste mesmo proxy
       createTab: async details => { const t = await newTab(profileId, details.url || S().home || HOME, details.active !== false); return [t.view.webContents, win]; },
-      selectTab: wc => { const t = tabs.find(x => x.view.webContents === wc); if (t) { activeId = t.id; layout(); pushTabs(); } },
-      removeTab: wc => { const t = tabs.find(x => x.view.webContents === wc); if (t) closeTab(t.id); },
+      selectTab: wc => { const t = tabs.find(x => alive(x) && x.view.webContents === wc); if (t) { activeId = t.id; layout(); pushTabs(); } },
+      removeTab: wc => { const t = tabs.find(x => alive(x) && x.view.webContents === wc); if (t) closeTab(t.id); else setTimeout(pushTabs, 0); },
       createWindow: async details => { for (const u of [].concat(details.url || S().home || HOME)) await newTab(profileId, u, true); return win; },
       removeWindow: () => {}
     });
@@ -271,9 +271,10 @@ let activeId = null;
 const ui = (ch, data) => { if (win && !win.isDestroyed()) win.webContents.send('ui', ch, data || {}); };
 let modalOpen = false; // janelinhas da barra ficam por baixo das abas: esconde a aba enquanto uma está aberta
 function layout() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   const [w, h] = win.getContentSize();
   tabs.forEach(t => {
+    if (!alive(t)) return;
     if (t.id === activeId && !modalOpen) { t.view.setBounds({ x: 0, y: BAR_H, width: w, height: Math.max(0, h - BAR_H) }); t.view.setVisible(true); }
     else t.view.setVisible(false);
   });
@@ -282,13 +283,23 @@ function tabInfo(t) {
   const wc = t.view.webContents, p = profileOf(t.profileId);
   return { name: t.name || '', country: p && p.country || '', proxyHost: p && p.proxy ? `${p.proxy.host}:${p.proxy.port}` : '', proxyIp: p && p.ip || '', wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
 }
-function pushTabs() { ui('tabs', { tabs: tabs.map(tabInfo), active: activeId }); persistTabs(); selectExtTab(); }
+// aba viva = ainda tem a página (uma extensão pode fechar a aba que ela abriu)
+const alive = t => { try { return !!(t && t.view && t.view.webContents && !t.view.webContents.isDestroyed()); } catch (_) { return false; } };
+function pruneTabs() {
+  for (let i = tabs.length - 1; i >= 0; i--) if (!alive(tabs[i])) { const [t] = tabs.splice(i, 1); try { win.contentView.removeChildView(t.view); } catch (_) {} if (activeId === t.id) activeId = (tabs[i] || tabs[i - 1] || {}).id || null; }
+}
+function pushTabs() {
+  pruneTabs();
+  if (!tabs.length && win && !win.isDestroyed()) { newTab('', S().home || HOME); return; }
+  if (!tabs.some(t => t.id === activeId) && tabs.length) { activeId = tabs[tabs.length - 1].id; layout(); }
+  ui('tabs', { tabs: tabs.map(t => { try { return tabInfo(t); } catch (_) { return null; } }).filter(Boolean), active: activeId }); persistTabs(); selectExtTab();
+}
 let lastSel = null;
 function selectExtTab() {
   const t = tabs.find(x => x.id === activeId); if (!t || lastSel === t.id) return; lastSel = t.id;
   try { const e = extOf.get('persist:aoshi-' + (t.profileId || 'direto')); e && e.selectTab(t.view.webContents); } catch (_) {}
 }
-function persistTabs() { store.tabs = tabs.map(t => ({ profileId: t.profileId || '', url: t.view.webContents.getURL() || HOME, name: t.name || '' })); save(); }
+function persistTabs() { store.tabs = tabs.filter(alive).map(t => ({ profileId: t.profileId || '', url: t.view.webContents.getURL() || HOME, name: t.name || '' })); save(); }
 
 async function newTab(profileId, url, activate = true, name = '') {
   const ses = await sessionFor(profileId);
@@ -300,6 +311,8 @@ async function newTab(profileId, url, activate = true, name = '') {
   const wc = view.webContents;
   const ext = extOf.get('persist:aoshi-' + (profileId || 'direto'));
   try { ext && ext.addTab(wc, win); } catch (_) {}
+  // fechada por fora (ex.: a extensão fecha a aba dela): sai da lista
+  wc.once('destroyed', () => { if (tabs.includes(t)) setTimeout(() => { pushTabs(); layout(); }, 0); });
   // botão direito: itens das extensões + básicos
   wc.on('context-menu', (_, params) => {
     const menu = new Menu();
@@ -656,6 +669,9 @@ function refreshWindowsIcons() {
     } catch (_) {}
   }
 }
+// erro inesperado no processo principal: registra e segue (sem a janela "A JavaScript error occurred")
+process.on('uncaughtException', e => { try { console.error('[Aoshi Pro]', e); fs.appendFileSync(path.join(app.getPath('userData'), 'erros.log'), new Date().toISOString() + ' ' + (e && e.stack || e) + '\n'); } catch (_) {} });
+process.on('unhandledRejection', e => { try { console.error('[Aoshi Pro]', e); } catch (_) {} });
 app.whenReady().then(async () => {
   load();
   refreshWindowsIcons();
