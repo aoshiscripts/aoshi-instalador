@@ -11,10 +11,10 @@ const profColor = id => (profiles.find(p => p.id === id) || {}).color || '#52525
 function renderTabs() {
   if (editingTab && document.querySelector('#tabs .tab-edit')) return; // não redesenha enquanto renomeia
   const tabsHTML = state.tabs.map(t => {
-    const tip = [t.name ? `${t.name} — ${t.title}` : t.title, t.profileId ? `Proxy: ${t.profileName}${t.proxyHost ? ' (' + t.proxyHost + ')' : ''}${t.proxyIp ? ' · IP ' + t.proxyIp : ''}` : 'Sem proxy (conexão direta)', 'Duplo clique: renomear · botão direito: mais opções'].join('\n');
+    const tip = [t.name ? `${t.name} — ${t.title}` : t.title, t.profileId ? `Proxy: ${t.profileName}${t.proxyHost ? ' (' + t.proxyHost + ')' : ''}${t.proxyIp ? ' · IP ' + t.proxyIp : ''}` : 'Sem proxy (conexão direta)', t.guard === 'ok' ? `🛡 Proteção ativa: os sites veem o IP ${t.guardIp || 'do proxy'}` : t.guard === 'down' ? '⛔ Bloqueada: o proxy falhou, nada sai por esta aba (o seu IP está protegido)' : t.guard ? '🛡 Conferindo o proxy…' : '', 'Duplo clique: renomear · botão direito: mais opções'].filter(Boolean).join('\n');
     const mark = /^[a-z]{2}$/.test(t.country || '') ? `<img class="tflag" src="flags/${t.country}.svg" alt="">` : `<span class="dot" style="background:${t.profileId ? esc(t.color || profColor(t.profileId)) : '#52525b'}"></span>`;
     return `<div class="tab${t.id === state.active ? ' on' : ''}${t.loading ? ' loading' : ''}${t.name ? ' named' : ''}" data-id="${t.id}" title="${esc(tip)}">
-    ${mark}<span class="t">${esc(t.name || t.title)}</span><span class="p">${esc(t.profileName)}</span><span class="x" data-x="${t.id}" title="Fechar (Ctrl+W)">✕</span></div>`;
+    ${mark}${t.guard === 'down' ? '<span class="gbad" title="Proxy falhou: aba bloqueada">⛔</span>' : ''}<span class="t">${esc(t.name || t.title)}</span><span class="p">${esc(t.profileName)}</span><span class="x" data-x="${t.id}" title="Fechar (Ctrl+W)">✕</span></div>`;
   }).join('');
   if ($('#tabs').dataset.html !== tabsHTML) { $('#tabs').innerHTML = tabsHTML; $('#tabs').dataset.html = tabsHTML; }
   const a = active();

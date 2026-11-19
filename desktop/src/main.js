@@ -168,8 +168,17 @@ const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electro
 // ---------- Privacidade ----------
 // Rastreadores conhecidos bloqueados; pedidos levam "não rastrear" (DNT e GPC).
 const TRACKERS = /(^|\.)(google-analytics\.com|googletagmanager\.com|googletagservices\.com|doubleclick\.net|googlesyndication\.com|adservice\.google\.[a-z.]+|facebook\.net|connect\.facebook\.com|hotjar\.(com|io)|clarity\.ms|scorecardresearch\.com|quantserve\.com|criteo\.(com|net)|taboola\.com|outbrain\.com|adnxs\.com|amazon-adsystem\.com|mixpanel\.com|segment\.(io|com)|bat\.bing\.com|ads\.yahoo\.com|yandex\.ru\/metrika|mc\.yandex\.ru|tiktok\.com\/i18n\/pixel|analytics\.tiktok\.com|newrelic\.com|nr-data\.net)$/i;
-function hardenSession(ses) {
+function hardenSession(ses, part) {
   ses.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (d, cb) => {
+    // trava de proteção: aba com proxy só navega com o proxy conferido (nunca pela sua conexão)
+    if (part && part !== 'persist:aoshi-direto') {
+      const g = guard.get(part);
+      if (!g || g.state !== 'ok') {
+        if (d.resourceType === 'mainFrame' && d.webContents) showBlocked(d.webContents, part, d.url);
+        recheckSoon(part);
+        return cb({ cancel: true });
+      }
+    }
     try { const h = new URL(d.url).hostname; if (S().blockTrackers && TRACKERS.test(h) && d.resourceType !== 'mainFrame') return cb({ cancel: true }); } catch (_) {}
     cb({});
   });
@@ -191,7 +200,7 @@ function hardenSession(ses) {
     item.once('done', (_, state) => ui('download', { state, name: item.getFilename(), file: item.getSavePath() }));
   });
 }
-const webrtcPolicy = () => S().webrtcProxy ? 'disable_non_proxied_udp' : 'default';
+const webrtcPolicy = t => (t && t.profileId) || S().webrtcProxy ? 'disable_non_proxied_udp' : 'default';
 
 // ---------- Extensões ----------
 // Cada proxy é uma sessão separada; as extensões ficam numa pasta só e são carregadas em todas as sessões.
@@ -274,12 +283,21 @@ async function sessionFor(profileId) {
   if (!prepared.has(part)) {
     prepared.add(part);
     ses.setUserAgent(chromeUA());
-    hardenSession(ses);
+    hardenSession(ses, part);
     await setupExtensions(ses, part, profileId || '');
   }
-  const rules = await proxyRulesFor(profileOf(profileId));
-  await ses.setProxy(rules ? { proxyRules: rules, proxyBypassRules: '<local>' } : { mode: 'direct' });
-  await ses.closeAllConnections?.();
+  const prof = profileOf(profileId);
+  const rules = await proxyRulesFor(prof);
+  if (profileId) {
+    // aba com proxy: servidor fixo, sem cair para conexão direta; sem proxy válido, aponta para um endereço morto
+    await ses.setProxy({ mode: 'fixed_servers', proxyRules: rules || 'http://127.0.0.1:9', proxyBypassRules: '<-loopback>' });
+    await ses.closeAllConnections?.();
+    if (!rules) guard.set(part, { state: 'down', reason: 'o proxy desta aba foi apagado ou está sem endereço', at: Date.now() });
+    else { const g = guard.get(part); if (g && g.state === 'ok' && Date.now() - g.at < 120000) checkGuard(part, prof); else await checkGuard(part, prof); }
+  } else {
+    await ses.setProxy({ mode: 'direct' });
+    await ses.closeAllConnections?.();
+  }
   return ses;
 }
 
@@ -300,7 +318,8 @@ function layout() {
 }
 function tabInfo(t) {
   const wc = t.view.webContents, p = profileOf(t.profileId);
-  return { name: t.name || '', country: p && p.country || '', proxyHost: p && p.proxy ? `${p.proxy.host}:${p.proxy.port}` : '', proxyIp: p && p.ip || '', wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
+  const gd = t.profileId ? (guard.get('persist:aoshi-' + t.profileId) || {}) : null;
+  return { guard: gd ? (gd.state || 'checking') : '', guardIp: gd && gd.ip || '', name: t.name || '', country: p && p.country || '', proxyHost: p && p.proxy ? `${p.proxy.host}:${p.proxy.port}` : '', proxyIp: p && p.ip || '', wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
 }
 // aba viva = ainda tem a página (uma extensão pode fechar a aba que ela abriu)
 const alive = t => { try { return !!(t && t.view && t.view.webContents && !t.view.webContents.isDestroyed()); } catch (_) { return false; } };
@@ -318,7 +337,7 @@ function selectExtTab() {
   const t = tabs.find(x => x.id === activeId); if (!t || lastSel === t.id) return; lastSel = t.id;
   try { const e = extOf.get('persist:aoshi-' + (t.profileId || 'direto')); e && e.selectTab(t.view.webContents); } catch (_) {}
 }
-function persistTabs() { store.tabs = tabs.filter(alive).map(t => ({ profileId: t.profileId || '', url: t.view.webContents.getURL() || HOME, name: t.name || '' })); save(); }
+function persistTabs() { store.tabs = tabs.filter(alive).map(t => { let u = t.view.webContents.getURL() || HOME; if (/^file:.*blocked\.html/i.test(u)) u = t.blockedUrl || HOME; return { profileId: t.profileId || '', url: u, name: t.name || '' }; }); save(); }
 
 async function newTab(profileId, url, activate = true, name = '') {
   const ses = await sessionFor(profileId);
@@ -346,7 +365,7 @@ async function newTab(profileId, url, activate = true, name = '') {
     menu.popup({ window: win });
   });
   // WebRTC só pelo proxy: o site não descobre o IP real por ele
-  try { wc.setWebRTCIPHandlingPolicy(webrtcPolicy()); } catch (_) {}
+  try { wc.setWebRTCIPHandlingPolicy(webrtcPolicy(t)); } catch (_) {}
   wc.on('did-finish-load', () => { if (t.zoom == null) wc.setZoomFactor((Number(S().zoom) || 100) / 100); });
   wc.on('found-in-page', (_, r) => { if (t.id === activeId) ui('find', { matches: r.matches, active: r.activeMatchOrdinal }); });
   wc.setWindowOpenHandler(({ url: u }) => { newTab(t.profileId, u, true); return { action: 'deny' }; });
@@ -519,6 +538,66 @@ function proxyGet(p, url, ms, method) {
     req.end();
   }));
 }
+// ---------- Trava de proteção do IP ----------
+// Cada aba com proxy só carrega depois de conferir, pelo próprio proxy, que o IP que os sites veem NÃO é o seu.
+// Se o proxy cair, recusar a senha ou devolver o seu IP real, a aba fica bloqueada (nenhum pedido sai) e mostra
+// um aviso; volta sozinha quando o proxy voltar. O Chromium também está sem a opção de cair para conexão direta.
+const guard = new Map(); // partição → { state: 'ok'|'down'|'checking', ip, reason, at }
+const guardRuns = new Map();
+async function checkGuard(part, prof) {
+  if (guardRuns.has(part)) return guardRuns.get(part);
+  const run = (async () => {
+    const prev = guard.get(part);
+    let res;
+    try {
+      let ip = '';
+      for (const url of ['https://api.ipify.org?format=json', 'https://ipv4.icanhazip.com/']) {
+        try { const r = await proxyGet(prof, url, 12000); const t = r.text.trim(); const v = t.startsWith('{') ? JSON.parse(t).ip : t; if (net.isIP(String(v || ''))) { ip = v; break; } } catch (e) { if (/^407$|PROXY_CONNECTION_FAILED|NAME_NOT_RESOLVED|^SOCKS .*auth/i.test(String(e.message))) throw e; }
+      }
+      if (!ip) throw new Error('o proxy não respondeu');
+      const mine = await directIp();
+      if (mine && ip === mine) res = { state: 'down', reason: `o proxy devolveu o seu IP real (${ip})`, at: Date.now() };
+      else if (!mine) res = prev && prev.state === 'ok' && prev.ip === ip ? prev : { state: 'ok', ip, at: Date.now(), unverified: true };
+      else res = { state: 'ok', ip, at: Date.now() };
+    } catch (e) {
+      const m = String(e && e.message || e);
+      res = { state: 'down', reason: /^SOCKS /.test(m) ? socksError(m) : proxyError(m), at: Date.now() };
+    }
+    guard.set(part, res);
+    const wasOk = prev && prev.state === 'ok';
+    if (res.state !== 'ok') {
+      try { await session.fromPartition(part).closeAllConnections(); } catch (_) {}
+      if (wasOk) tabs.forEach(t => { if (alive(t) && 'persist:aoshi-' + t.profileId === part) showBlocked(t.view.webContents, part, t.view.webContents.getURL()); });
+    } else if (prev && prev.state === 'down') {
+      // voltou: as abas bloqueadas carregam de novo a página que queriam
+      tabs.forEach(t => { if (alive(t) && 'persist:aoshi-' + t.profileId === part && t.blockedUrl) { const u = t.blockedUrl; t.blockedUrl = ''; t.view.webContents.loadURL(u); } });
+    }
+    pushTabs();
+    return res;
+  })();
+  guardRuns.set(part, run);
+  try { return await run; } finally { guardRuns.delete(part); }
+}
+const recheckAt = new Map();
+function recheckSoon(part) {
+  if (Date.now() - (recheckAt.get(part) || 0) < 10000) return;
+  recheckAt.set(part, Date.now());
+  const prof = profileOf(part.replace('persist:aoshi-', ''));
+  if (prof && prof.proxy && prof.proxy.host) checkGuard(part, prof);
+}
+function showBlocked(wc, part, url) {
+  const t = tabs.find(x => alive(x) && x.view.webContents === wc);
+  if (url && /^https?:/i.test(url) && t) t.blockedUrl = url;
+  const g = guard.get(part) || {}, prof = profileOf(part.replace('persist:aoshi-', ''));
+  const q = new URLSearchParams({ r: g.reason || 'conferindo o proxy…', p: prof ? `${prof.name} (${prof.proxy.host}:${prof.proxy.port})` : 'proxy apagado', u: url || '' });
+  setImmediate(() => { try { if (!wc.isDestroyed()) wc.loadFile(path.join(__dirname, 'blocked.html'), { search: q.toString() }); } catch (_) {} });
+}
+// confere de novo, a cada minuto, os proxies das abas abertas
+setInterval(() => {
+  const parts = new Set(tabs.filter(t => alive(t) && t.profileId).map(t => 'persist:aoshi-' + t.profileId));
+  parts.forEach(part => { const prof = profileOf(part.replace('persist:aoshi-', '')); if (prof && prof.proxy && prof.proxy.host) checkGuard(part, prof); else guard.set(part, { state: 'down', reason: 'o proxy desta aba foi apagado', at: Date.now() }); });
+}, 60000);
+ipcMain.on('guard:retry', e => { const t = tabs.find(x => alive(x) && x.view.webContents === e.sender); if (t && t.profileId) { recheckAt.delete('persist:aoshi-' + t.profileId); recheckSoon('persist:aoshi-' + t.profileId); } });
 // IP da sua conexão sem proxy (para saber se um proxy está vazando o seu IP)
 let myIp = { ip: '', at: 0 };
 async function directIp() {
@@ -641,13 +720,13 @@ ipcMain.handle('settings:save', (_, next) => {
   const prev = S();
   store.settings = Object.assign({}, store.settings || {}, next || {});
   const st = S(); saveNow();
-  if (st.webrtcProxy !== prev.webrtcProxy) tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy()); } catch (_) {} });
+  if (st.webrtcProxy !== prev.webrtcProxy) tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy(t)); } catch (_) {} });
   if (st.zoom !== prev.zoom) tabs.forEach(t => { if (t.zoom == null) t.view.webContents.setZoomFactor((Number(st.zoom) || 100) / 100); });
   if (st.checkMin !== prev.checkMin) restartCheckTimer();
   if (st.autoStart !== prev.autoStart && app.isPackaged) { try { app.setLoginItemSettings({ openAtLogin: !!st.autoStart }); } catch (_) {} }
   return st;
 });
-ipcMain.handle('settings:reset', () => { store.settings = {}; saveNow(); restartCheckTimer(); tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy()); if (t.zoom == null) t.view.webContents.setZoomFactor(1); } catch (_) {} }); return S(); });
+ipcMain.handle('settings:reset', () => { store.settings = {}; saveNow(); restartCheckTimer(); tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy(t)); if (t.zoom == null) t.view.webContents.setZoomFactor(1); } catch (_) {} }); return S(); });
 // Limpar dados de navegação: de um perfil ou de todos
 ipcMain.handle('data:clear', async (_, { profileId, what }) => {
   const parts = profileId === '*' ? ['direto'].concat(store.profiles.map(p => p.id)) : [profileId || 'direto'];
