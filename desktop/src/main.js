@@ -97,6 +97,73 @@ function proxyRules(p) {
   const type = (p.proxy.type || 'http').toLowerCase();
   return `${type === 'socks5' ? 'socks5' : type === 'https' ? 'https' : 'http'}://${p.proxy.host}:${p.proxy.port || (type === 'socks5' ? 1080 : 8080)}`;
 }
+// ---------- Ponte SOCKS5 com usuário e senha ----------
+// O Chrome não aceita SOCKS5 com login. Para esses proxies o programa abre um mini proxy local (só neste computador,
+// em 127.0.0.1): as abas falam com ele, e ele fala com o SOCKS5 entregando o usuário e a senha.
+let SocksClient = null;
+try { SocksClient = require('socks').SocksClient; } catch (e) { console.warn('[proxy] sem a biblioteca socks', e.message); }
+const net = require('net');
+const bridges = new Map(); // credenciais → { server, port }
+const needsBridge = p => !!(SocksClient && p && p.proxy && p.proxy.host && String(p.proxy.type || '').toLowerCase() === 'socks5' && p.proxy.user);
+const socksOpts = p => ({ host: String(p.proxy.host).trim(), port: Number(p.proxy.port) || 1080, type: 5, userId: p.proxy.user || undefined, password: p.proxy.pass || undefined });
+function splitHostPort(t, def) {
+  const m = String(t).match(/^\[([^\]]+)\]:(\d+)$/) || String(t).match(/^([^:]+):(\d+)$/);
+  return m ? [m[1], Number(m[2])] : [String(t), def];
+}
+async function socksBridge(p) {
+  const key = [p.proxy.host, p.proxy.port, p.proxy.user, p.proxy.pass].join('|');
+  const have = bridges.get(key); if (have) return have.port;
+  const up = socksOpts(p);
+  const server = net.createServer(client => {
+    let buf = Buffer.alloc(0);
+    client.on('error', () => {});
+    const onData = chunk => {
+      buf = Buffer.concat([buf, chunk]);
+      const end = buf.indexOf('\r\n\r\n');
+      if (end < 0) { if (buf.length > 65536) client.destroy(); return; }
+      client.removeListener('data', onData); client.pause();
+      const head = buf.slice(0, end).toString('latin1'), rest = buf.slice(end + 4);
+      const lines = head.split('\r\n'), [method, target, ver] = lines[0].split(' ');
+      let host, port, first = null;
+      if (method === 'CONNECT') [host, port] = splitHostPort(target, 443);
+      else {
+        let u; try { u = new URL(target); } catch (_) { client.end('HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n'); return; }
+        host = u.hostname; port = Number(u.port) || 80;
+        const hdrs = lines.slice(1).filter(l => !/^(proxy-connection|proxy-authorization|connection|keep-alive):/i.test(l));
+        first = Buffer.concat([Buffer.from(`${method} ${u.pathname}${u.search} ${ver || 'HTTP/1.1'}\r\n${hdrs.join('\r\n')}\r\nConnection: close\r\n\r\n`, 'latin1'), rest]);
+      }
+      SocksClient.createConnection({ proxy: up, command: 'connect', destination: { host, port }, timeout: 20000 }).then(({ socket }) => {
+        if (method === 'CONNECT') { client.write('HTTP/1.1 200 Connection Established\r\n\r\n'); if (rest.length) socket.write(rest); }
+        else socket.write(first);
+        socket.pipe(client); client.pipe(socket); client.resume();
+        const kill = () => { socket.destroy(); client.destroy(); };
+        socket.on('error', kill); client.on('error', kill); socket.on('close', () => client.destroy()); client.on('close', () => socket.destroy());
+      }).catch(e => {
+        const auth = /auth/i.test(e.message);
+        try { client.end(`HTTP/1.1 ${auth ? '407 Proxy Authentication Required' : '502 Bad Gateway'}\r\nContent-Length: 0\r\n\r\n`); } catch (_) {}
+      });
+    };
+    client.on('data', onData);
+  });
+  await new Promise((res, rej) => { server.once('error', rej); server.listen(0, '127.0.0.1', res); });
+  const port = server.address().port;
+  bridges.set(key, { server, port });
+  return port;
+}
+// regra de proxy da sessão (usa a ponte quando é SOCKS5 com login)
+async function proxyRulesFor(p) {
+  if (needsBridge(p)) return `http://127.0.0.1:${await socksBridge(p)}`;
+  return proxyRules(p);
+}
+// erro do SOCKS em português (teste direto, sem passar pelo Chrome)
+function socksError(m) {
+  m = String(m || '');
+  if (/auth/i.test(m)) return 'o SOCKS5 recusou o usuário ou a senha';
+  if (/ECONNREFUSED/i.test(m)) return 'não conectou no SOCKS5 (endereço ou porta errados, ou proxy fora do ar)';
+  if (/ENOTFOUND|EAI_AGAIN/i.test(m)) return 'o endereço do proxy não existe (confira o nome)';
+  if (/timed? ?out|ETIMEDOUT/i.test(m)) return 'o SOCKS5 demorou demais para responder';
+  return 'falha no SOCKS5: ' + m.slice(0, 120);
+}
 const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electron\/\S+/, '').replace(/\s?aoshi-pro-desktop\/\S+/i, '').replace(/\s?Aoshi Pro\/\S+/i, '');
 // ---------- Privacidade ----------
 // Rastreadores conhecidos bloqueados; pedidos levam "não rastrear" (DNT e GPC).
@@ -191,7 +258,7 @@ async function sessionFor(profileId) {
     hardenSession(ses);
     await setupExtensions(ses, part, profileId || '');
   }
-  const rules = proxyRules(profileOf(profileId));
+  const rules = await proxyRulesFor(profileOf(profileId));
   await ses.setProxy(rules ? { proxyRules: rules, proxyBypassRules: '<local>' } : { mode: 'direct' });
   await ses.closeAllConnections?.();
   return ses;
@@ -371,7 +438,13 @@ ipcMain.handle('profiles:save', (_, list) => {
 // Testa o proxy numa sessão temporária: IP e país vistos pela internet e latência até o Tribal Wars.
 // Vários testes podem rodar ao mesmo tempo (cada um com a sua sessão e a sua senha).
 ipcMain.handle('profiles:test', async (_, p) => {
-  const rules = proxyRules(p);
+  if (!p || !p.proxy || !p.proxy.host) return { ok: false, message: 'sem endereço' };
+  // SOCKS5 com login: testa primeiro direto (dá o motivo exato se falhar), depois pela ponte como as abas
+  if (needsBridge(p)) {
+    try { const { socket } = await SocksClient.createConnection({ proxy: socksOpts(p), command: 'connect', destination: { host: 'api.ipify.org', port: 443 }, timeout: 20000 }); socket.destroy(); }
+    catch (e) { return { ok: false, message: socksError(e.message) }; }
+  }
+  const rules = await proxyRulesFor(p);
   if (!rules) return { ok: false, message: 'sem endereço' };
   const ses = session.fromPartition('aoshi-test-' + crypto.randomUUID());
   await ses.setProxy({ proxyRules: rules });
