@@ -752,7 +752,15 @@ ipcMain.handle('ext:load-folder', async () => {
   return loaded ? { ok: true, name: loaded.name } : { ok: false, message: err ? err.message : 'não carregou' };
 });
 ipcMain.handle('settings:get', async () => {
-  let size = 0; try { for (const part of new Set(['direto'].concat(store.profiles.map(p => p.id)))) size += await session.fromPartition('persist:aoshi-' + part).getCacheSize(); } catch (_) {}
+  // tamanho do cache só das sessões que existem no disco (antes abria uma sessão para cada proxy da lista:
+  // com milhares de proxies a tela de configurações demorava ou nem abria)
+  let size = 0;
+  try {
+    const dir = path.join(app.getPath('userData'), 'Partitions');
+    const used = fs.existsSync(dir) ? fs.readdirSync(dir).filter(d => /^aoshi-/.test(d)).slice(0, 60) : [];
+    const sizes = await Promise.race([Promise.all(used.map(d => session.fromPartition('persist:' + d).getCacheSize().catch(() => 0))), new Promise(r => setTimeout(() => r([]), 1500))]);
+    size = sizes.reduce((a, b) => a + b, 0);
+  } catch (_) {}
   return { chrome: process.versions.chrome, electron: process.versions.electron, extCount: extList().length, profileCount: store.profiles.length, settings: S(), version: app.getVersion(), script: versionOf(code()), scriptWhen: store.when, hasToken: !!decToken(store.token), downloadsDefault: app.getPath('downloads'), cacheMB: Math.round(size / 1048576), profiles: store.profiles.map(p => ({ id: p.id, name: p.name })) };
 });
 ipcMain.handle('settings:save', (_, next) => {
@@ -768,7 +776,8 @@ ipcMain.handle('settings:save', (_, next) => {
 ipcMain.handle('settings:reset', () => { store.settings = {}; saveNow(); restartCheckTimer(); tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy(t)); if (t.zoom == null) t.view.webContents.setZoomFactor(1); } catch (_) {} }); return S(); });
 // Limpar dados de navegação: de um perfil ou de todos
 ipcMain.handle('data:clear', async (_, { profileId, what }) => {
-  const parts = profileId === '*' ? ['direto'].concat(store.profiles.map(p => p.id)) : [profileId || 'direto'];
+  let parts = [profileId || 'direto'];
+  if (profileId === '*') { try { const dir = path.join(app.getPath('userData'), 'Partitions'); parts = fs.existsSync(dir) ? fs.readdirSync(dir).filter(d => /^aoshi-/.test(d)).map(d => d.replace(/^aoshi-/, '')) : ['direto']; } catch (_) { parts = ['direto']; } }
   const storages = { cookies: ['cookies'], storage: ['localstorage', 'indexdb', 'serviceworkers', 'cachestorage', 'websql', 'filesystem'], all: undefined }[what || 'all'];
   for (const part of parts) {
     const ses = session.fromPartition('persist:aoshi-' + part);
@@ -1007,19 +1016,27 @@ function refreshWindowsIcons() {
     if (!fs.existsSync(ico)) fs.writeFileSync(ico, fs.readFileSync(path.join(__dirname, 'icon.ico')));
     fs.readdirSync(dir).forEach(f => { if (/^aoshi-pro-.*\.ico$/i.test(f) && path.join(dir, f) !== ico) try { fs.unlinkSync(path.join(dir, f)); } catch (_) {} });
   } catch (_) { ico = exe; }
-  const links = [
-    path.join(app.getPath('desktop'), 'Aoshi Pro.lnk'),
-    path.join(process.env.PUBLIC || 'C:\\Users\\Public', 'Desktop', 'Aoshi Pro.lnk'),
-    path.join(roam, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Aoshi Pro.lnk'),
-    path.join(roam, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar', 'Aoshi Pro.lnk')
-  ];
+  // procura em todas essas pastas qualquer atalho que abra o Aoshi Pro (o nome do atalho pode ser outro,
+  // e a área de trabalho pode estar no OneDrive)
+  const home = process.env.USERPROFILE || '';
+  const dirs = [...new Set([
+    app.getPath('desktop'), path.join(home, 'Desktop'), path.join(home, 'OneDrive', 'Desktop'), path.join(home, 'OneDrive', 'Área de Trabalho'),
+    path.join(process.env.PUBLIC || 'C:\\Users\\Public', 'Desktop'),
+    path.join(roam, 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    path.join(roam, 'Microsoft', 'Internet Explorer', 'Quick Launch'),
+    path.join(roam, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar'),
+    path.join(roam, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'StartMenu')
+  ])];
+  const links = [];
+  dirs.forEach(d => { try { fs.readdirSync(d).forEach(f => { if (/\.lnk$/i.test(f)) links.push(path.join(d, f)); }); } catch (_) {} });
   let changed = false;
   links.forEach(lnk => {
     try {
       if (!fs.existsSync(lnk)) return;
       const cur = shell.readShortcutLink(lnk);
       // só atalhos do Aoshi Pro (mesmo que apontem para uma instalação antiga em outra pasta)
-      if (!cur || !/aoshi pro\.exe$/i.test(cur.target || '')) return;
+      if (!cur || !/aoshi[ -]?pro[^\\/]*\.exe$/i.test(cur.target || '')) return;
       if (cur.icon === ico && path.resolve(cur.target).toLowerCase() === path.resolve(exe).toLowerCase()) return;
       changed = shell.writeShortcutLink(lnk, 'replace', Object.assign({}, cur, { target: exe, cwd: path.dirname(exe), icon: ico, iconIndex: 0 })) || changed;
     } catch (_) {}

@@ -110,7 +110,7 @@ let usData = [], usPendingId = '';
 function renderScripts() {
   $('#scripts-n').textContent = usData.length ? String(usData.length) : '';
   const box = $('#us-list'); if (!box) return;
-  box.innerHTML = usData.length ? usData.map(x => `<div class="usr${x.enabled ? '' : ' off'}" data-id="${esc(x.id)}">
+  box.innerHTML = usData.length ? usData.map(x => `<div class="usrow${x.enabled ? '' : ' off'}" data-id="${esc(x.id)}">
       <label class="sw" title="${x.enabled ? 'Ligado' : 'Desligado'}"><input type="checkbox" data-us-toggle${x.enabled ? ' checked' : ''}><span></span></label>
       <span class="ic none">JS</span>
       <span><span class="nm">${esc(x.name)}</span>${x.version ? `<span class="vt">v${esc(x.version)}</span>` : ''}<small>${esc(x.enabled ? (x.where.join(' · ') || 'sem páginas definidas') : 'desligado')}${x.description ? ' — ' + esc(x.description) : ''}</small></span>
@@ -150,9 +150,9 @@ $('#usc-ok').onclick = async () => {
 };
 $('#us-reload').onclick = () => { aoshi.reloadAll(); $('#us-stat').textContent = 'Abas recarregadas.'; };
 let usEditId = '';
-$('#us-list').addEventListener('change', async e => { const row = e.target.closest('.usr'); if (row && e.target.matches('[data-us-toggle]')) { usData = await aoshi.usToggle(row.dataset.id, e.target.checked); renderScripts(); $('#us-stat').textContent = 'Vale a partir do próximo carregamento das páginas.'; } });
+$('#us-list').addEventListener('change', async e => { const row = e.target.closest('.usrow'); if (row && e.target.matches('[data-us-toggle]')) { usData = await aoshi.usToggle(row.dataset.id, e.target.checked); renderScripts(); $('#us-stat').textContent = 'Vale a partir do próximo carregamento das páginas.'; } });
 $('#us-list').addEventListener('click', async e => {
-  const row = e.target.closest('.usr'); if (!row) return; const id = row.dataset.id, x = usData.find(y => y.id === id);
+  const row = e.target.closest('.usrow'); if (!row) return; const id = row.dataset.id, x = usData.find(y => y.id === id);
   if (e.target.closest('[data-us-update]')) { $('#us-stat').textContent = `Atualizando ${x ? x.name : ''}…`; try { const r = await aoshi.usUpdate(id); $('#us-stat').textContent = r.from === r.to ? `${r.name} já está na versão mais nova (v${r.to}).` : `${r.name}: v${r.from || '?'} → v${r.to}.`; } catch (err) { $('#us-stat').textContent = 'Não deu para atualizar: ' + usErr(err); } }
   else if (e.target.closest('[data-us-edit]')) { usEditId = id; $('#use-title').textContent = `Editar ${x ? x.name : 'script'}`; $('#use-code').value = await aoshi.usCode(id); $('#use-stat').textContent = ''; show('#m-us-edit', true); }
   else if (e.target.closest('[data-us-del]')) {
@@ -329,7 +329,7 @@ function updateStat() {
   $('#px-count').textContent = `${profiles.length} proxies · ${ok} funcionando · ${bad} com falha`;
 }
 const rowHTML = (p, i) => `<div class="pxr${p.status === 'bad' ? ' is-bad' : ''}" data-id="${esc(p.id)}">
-  <span class="num">${i + 1}</span>${flagOf(p)}
+  <span class="num"><input type="checkbox" class="pxsel" data-sel="${esc(p.id)}"${pxSel.has(p.id) ? ' checked' : ''}>${i + 1}</span>${flagOf(p)}
   <input class="nm" data-k="name" value="${esc(p.name)}" title="Nome">
   <span class="addr" title="${esc(p.proxy.type)}://${esc(p.proxy.host)}:${esc(p.proxy.port)}"><button class="ptype t-${esc(p.proxy.type || 'http')}" data-ptype title="Tipo do proxy: clique para trocar (HTTP → SOCKS5 → HTTPS) e testar de novo">${esc((p.proxy.type || 'http').toUpperCase())}</button>${esc(p.proxy.host)}:${esc(p.proxy.port)}</span>
   <span class="usr">${p.proxy.user ? esc(p.proxy.user) : '<i>sem login</i>'}</span>
@@ -338,12 +338,51 @@ const rowHTML = (p, i) => `<div class="pxr${p.status === 'bad' ? ' is-bad' : ''}
   <button class="ghost sm" data-test title="Testar de novo">Testar</button><button class="ghost sm" data-open title="Abre uma aba com este proxy numa página que mostra o IP e o país">Abrir</button><button class="ghost sm" data-del title="Excluir">✕</button>
   ${(state.links || {})[p.id] ? `<div class="pxlnk">🔗 Vinculado à aba <b>${esc(tabLabel(state.links[p.id]))}</b> · ${state.links[p.id].open ? 'aberta' : 'fechada'}</div>` : ''}
   ${p.status === 'bad' && p.error ? `<div class="pxerr">${esc(p.error)}</div>` : ''}</div>`;
-function renderProfiles() {
+// seleção e filtros da lista de proxies
+const pxSel = new Set();
+function pxVisible() {
   const q = ($('#px-q').value || '').trim().toLowerCase();
-  const list = profiles.map((p, i) => [p, i]).filter(([p, i]) => !q || `${i + 1} ${p.name} ${p.proxy.host}:${p.proxy.port} ${p.proxy.user} ${p.countryName} ${countryPT(p)} ${p.country} ${p.ip}`.toLowerCase().includes(q));
-  $('#prof-list').innerHTML = profiles.length ? `<div class="pxr head"><span>#</span><span></span><span>Nome</span><span>Endereço</span><span>Usuário</span><span>País</span><span>Latência</span><span></span><span></span><span></span></div>` + list.map(([p, i]) => rowHTML(p, i)).join('') : '<div class="hint empty">Nenhum proxy ainda. Cole uma lista acima ou adicione um.</div>';
-  updateStat();
+  const cc = $('#px-f-cc').value, ty = $('#px-f-type').value, st = $('#px-f-st').value;
+  return profiles.map((p, i) => [p, i]).filter(([p, i]) =>
+    (!q || `${i + 1} ${p.name} ${p.proxy.host}:${p.proxy.port} ${p.proxy.user} ${p.countryName} ${countryPT(p)} ${p.country} ${p.ip}`.toLowerCase().includes(q)) &&
+    (!cc || (cc === '-' ? !p.country : p.country === cc)) &&
+    (!ty || (p.proxy.type || 'http') === ty) &&
+    (!st || (st === 'new' ? !p.status : p.status === st)));
 }
+function pxFillCountries() {
+  const sel = $('#px-f-cc'), cur = sel.value, by = {};
+  profiles.forEach(p => { const k = p.country || '-'; by[k] = (by[k] || 0) + 1; });
+  const opts = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<option value="${esc(k)}">${k === '-' ? 'Sem país' : esc(countryPT({ country: k }) || k.toUpperCase())} (${n})</option>`).join('');
+  sel.innerHTML = '<option value="">Todos</option>' + opts;
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+function pxSelStat() {
+  [...pxSel].forEach(id => { if (!profiles.some(p => p.id === id)) pxSel.delete(id); });
+  $('#px-sel-n').textContent = pxSel.size ? `${pxSel.size} selecionado(s)` : '';
+  ['#px-sel-test', '#px-sel-del'].forEach(s => { $(s).disabled = !pxSel.size; });
+  $('#px-sel-type').disabled = !pxSel.size;
+  const all = document.querySelector('#prof-list .pxsel-all');
+  if (all) { const vis = pxVisible(); const n = vis.filter(([p]) => pxSel.has(p.id)).length; all.checked = !!vis.length && n === vis.length; all.indeterminate = n > 0 && n < vis.length; }
+}
+function renderProfiles() {
+  pxFillCountries();
+  const list = pxVisible();
+  $('#prof-list').innerHTML = profiles.length ? `<div class="pxr head"><span class="num"><input type="checkbox" class="pxsel-all" title="Selecionar todos os da lista (com os filtros)">#</span><span></span><span>Nome</span><span>Endereço</span><span>Usuário</span><span>País</span><span>Latência</span><span></span><span></span><span></span></div>` + (list.length ? list.map(([p, i]) => rowHTML(p, i)).join('') : '<div class="hint empty">Nenhum proxy com esses filtros.</div>') : '<div class="hint empty">Nenhum proxy ainda. Cole uma lista acima ou adicione um.</div>';
+  updateStat(); pxSelStat();
+}
+['#px-f-cc', '#px-f-type', '#px-f-st'].forEach(s => $(s).addEventListener('change', renderProfiles));
+$('#prof-list').addEventListener('change', e => {
+  if (e.target.matches('.pxsel-all')) { pxVisible().forEach(([p]) => { if (e.target.checked) pxSel.add(p.id); else pxSel.delete(p.id); }); document.querySelectorAll('#prof-list .pxsel').forEach(c => { c.checked = pxSel.has(c.dataset.sel); }); pxSelStat(); return; }
+  if (e.target.matches('.pxsel')) { if (e.target.checked) pxSel.add(e.target.dataset.sel); else pxSel.delete(e.target.dataset.sel); pxSelStat(); }
+});
+$('#px-sel-test').onclick = () => { const l = profiles.filter(p => pxSel.has(p.id)); if (l.length) { l.forEach(p => { p.status = ''; }); testList(l); } };
+$('#px-sel-type').onchange = e => { const ty = e.target.value; if (!ty) return; const l = profiles.filter(p => pxSel.has(p.id)); l.forEach(p => { p.proxy.type = ty; Object.assign(p, { status: '', error: '', latency: null, ip: '', country: '', countryName: '' }); }); e.target.value = ''; saveSoon(); renderProfiles(); testList(l); $('#px-stat').textContent = `${l.length} proxy(s) trocados para ${ty.toUpperCase()}; testando de novo.`; };
+$('#px-sel-del').onclick = e => {
+  const b = e.currentTarget; if (!pxSel.size) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = `Confirmar: excluir ${pxSel.size}`; setTimeout(() => { b.dataset.confirm = ''; b.textContent = 'Excluir selecionados'; }, 4000); return; }
+  b.dataset.confirm = ''; b.textContent = 'Excluir selecionados';
+  const n = pxSel.size; profiles = profiles.filter(p => !pxSel.has(p.id)); testQueue = testQueue.filter(id => !pxSel.has(id)); pxSel.clear(); saveSoon(); renderProfiles(); $('#px-stat').textContent = `${n} excluído(s).`;
+};
 function renderRow(id) {
   const el = document.querySelector(`.pxr[data-id="${CSS.escape(id)}"]`); if (!el) return;
   const i = profiles.findIndex(p => p.id === id); if (i < 0) return;

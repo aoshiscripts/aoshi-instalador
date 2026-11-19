@@ -93,6 +93,16 @@
       <div class="row wrap"><label>Tipo <select id="px-type"><option value="http">HTTP</option><option value="socks5">SOCKS5</option><option value="https">HTTPS</option></select></label><button id="px-bulk-add">Adicionar lista</button><span class="spacer"></span><span id="px-stat" class="hint"></span></div>
       <div class="row"><input id="px-one" spellcheck="false" placeholder="Adicionar um: endereço:porta:usuário:senha"><button id="px-one-add">Adicionar</button></div>
       <div class="row wrap px-tools"><b>Lista</b><span id="px-count" class="hint"></span><span class="spacer"></span><input id="px-q" placeholder="Filtrar" spellcheck="false"><button class="ghost" id="px-test-all">Testar todos</button><button class="ghost" id="px-del-bad">Remover os que falharam</button><button class="ghost" id="px-del-all">Excluir todos</button></div>
+      <div class="row wrap px-tools px-filt">
+        <label>País <select id="px-f-cc"><option value="">Todos</option></select></label>
+        <label>Tipo <select id="px-f-type"><option value="">Todos</option><option value="http">HTTP</option><option value="socks5">SOCKS5</option><option value="https">HTTPS</option></select></label>
+        <label>Situação <select id="px-f-st"><option value="">Todos</option><option value="ok">Funcionando</option><option value="bad">Falhou</option><option value="new">Não testado</option></select></label>
+        <span class="spacer"></span>
+        <span id="px-sel-n" class="hint"></span>
+        <button class="ghost" id="px-sel-test">Testar selecionados</button>
+        <label>Trocar tipo <select id="px-sel-type"><option value="">—</option><option value="http">HTTP</option><option value="socks5">SOCKS5</option><option value="https">HTTPS</option></select></label>
+        <button class="ghost" id="px-sel-del">Excluir selecionados</button>
+      </div>
       <div id="prof-list" class="px-list"></div>
       <div class="actions"><span class="hint">As mudanças são salvas na hora.</span><span class="spacer"></span><button data-close>Fechar</button></div>
     </div>
