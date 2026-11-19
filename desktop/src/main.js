@@ -466,58 +466,96 @@ ipcMain.handle('profiles:save', (_, list) => {
   tabs.forEach(t => { if (!t.profileId) return; const p = profileOf(t.profileId); if (p && before.get(p.id) !== proxyKey(p)) sessionFor(t.profileId).then(() => t.view.webContents.reload()); });
   return store.profiles;
 });
-// Testa o proxy numa sessão temporária: IP e país vistos pela internet e latência até o Tribal Wars.
-// Vários testes podem rodar ao mesmo tempo (cada um com a sua sessão e a sua senha).
+// Testa o proxy direto pelo Node (sem o Chromium): conecta no proxy, entrega o usuário e a senha no próprio pedido
+// (Proxy-Authorization / login do SOCKS5) e abre HTTPS por dentro. Assim o teste é igual em HTTP, HTTPS e SOCKS5,
+// dá o erro exato e não cria uma sessão do navegador por proxy (aguenta listas de milhares).
+const tls = require('tls');
+const https = require('https');
+function proxyTunnel(p, host, port, ms) {
+  const type = String(p.proxy.type || 'http').toLowerCase();
+  const ph = String(p.proxy.host).trim(), pp = Number(p.proxy.port) || (type === 'socks5' ? 1080 : 8080);
+  if (type === 'socks5' || type === 'socks') {
+    if (!SocksClient) return Promise.reject(new Error('SOCKS sem a biblioteca'));
+    return SocksClient.createConnection({ proxy: socksOpts(p), command: 'connect', destination: { host, port }, timeout: ms })
+      .then(r => r.socket, e => { throw new Error('SOCKS ' + (e.message || e)); });
+  }
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const fail = e => { if (done) return; done = true; try { sock.destroy(); } catch (_) {} reject(e); };
+    const sock = type === 'https' ? tls.connect({ host: ph, port: pp, servername: net.isIP(ph) ? undefined : ph, rejectUnauthorized: false }) : net.connect({ host: ph, port: pp });
+    sock.setTimeout(ms, () => fail(new Error('TIMED_OUT')));
+    sock.once('error', e => fail(new Error(/ECONNREFUSED/.test(e.code) ? 'PROXY_CONNECTION_FAILED' : /ENOTFOUND|EAI_AGAIN/.test(e.code) ? 'NAME_NOT_RESOLVED' : /ECONNRESET/.test(e.code) ? 'CONNECTION_RESET' : (e.code || e.message))));
+    sock.once(type === 'https' ? 'secureConnect' : 'connect', () => {
+      const auth = p.proxy.user ? `Proxy-Authorization: Basic ${Buffer.from(`${p.proxy.user}:${p.proxy.pass || ''}`).toString('base64')}\r\n` : '';
+      sock.write(`CONNECT ${host}:${port} HTTP/1.1\r\nHost: ${host}:${port}\r\n${auth}Proxy-Connection: keep-alive\r\n\r\n`);
+    });
+    let buf = Buffer.alloc(0);
+    const onData = d => {
+      buf = Buffer.concat([buf, d]);
+      const end = buf.indexOf('\r\n\r\n'); if (end < 0) { if (buf.length > 16384) fail(new Error('EMPTY_RESPONSE')); return; }
+      sock.removeListener('data', onData);
+      const code = Number((buf.slice(0, end).toString('latin1').match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/) || [])[1]);
+      if (code === 200) { done = true; sock.setTimeout(0); resolve(sock); }
+      else if (code === 407) fail(new Error('407'));
+      else fail(new Error(code ? 'TUNNEL_CONNECTION_FAILED ' + code : 'EMPTY_RESPONSE'));
+    };
+    sock.on('data', onData);
+    sock.once('end', () => fail(new Error('EMPTY_RESPONSE')));
+  });
+}
+function proxyGet(p, url, ms, method) {
+  const u = new URL(url), port = Number(u.port) || 443;
+  return proxyTunnel(p, u.hostname, port, ms).then(raw => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { req.destroy(new Error('TIMED_OUT')); }, ms);
+    const req = https.request({ host: u.hostname, port, path: u.pathname + u.search, method: method || 'GET', agent: false, servername: u.hostname,
+      createConnection: () => tls.connect({ socket: raw, servername: u.hostname }),
+      headers: { 'User-Agent': chromeUA(), 'Accept': 'application/json,*/*', 'Connection': 'close' } }, res => {
+      const chunks = []; res.on('data', c => { if (chunks.length < 64) chunks.push(c); });
+      res.on('end', () => { clearTimeout(timer); raw.destroy(); resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }); });
+      res.on('error', e => { clearTimeout(timer); raw.destroy(); reject(e); });
+    });
+    req.on('error', e => { clearTimeout(timer); raw.destroy(); reject(new Error(/CERT|SSL|certificate/i.test(e.message) ? 'CERT ' + e.message : (e.code || e.message))); });
+    req.end();
+  }));
+}
 ipcMain.handle('profiles:test', async (_, p) => {
   if (!p || !p.proxy || !p.proxy.host) return { ok: false, message: 'sem endereço' };
-  // SOCKS5 com login: testa primeiro direto (dá o motivo exato se falhar), depois pela ponte como as abas
-  if (needsBridge(p)) {
-    try { const { socket } = await SocksClient.createConnection({ proxy: socksOpts(p), command: 'connect', destination: { host: 'api.ipify.org', port: 443 }, timeout: 20000 }); socket.destroy(); }
-    catch (e) { return { ok: false, message: socksError(e.message) }; }
-  }
-  const rules = await proxyRulesFor(p);
-  if (!rules) return { ok: false, message: 'sem endereço' };
-  const ses = session.fromPartition('aoshi-test-' + crypto.randomUUID());
-  await ses.setProxy({ proxyRules: rules });
-  const key = `${String(p.proxy.host).toLowerCase()}:${Number(p.proxy.port)}`;
-  if (p.proxy.user) testCreds.set(key, p.proxy);
-  const get = async (url, ms, opt) => {
-    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
-    try { return await ses.fetch(url, Object.assign({ cache: 'no-store', signal: ctl.signal }, opt || {})); } finally { clearTimeout(timer); }
-  };
   const t0 = Date.now();
   try {
-    let geo = null, errs = [];
-    // vários sites de verificação (um em http, que passa mesmo em plano de proxy sem HTTPS); só para no erro de senha
-    // vários sites de verificação; o de http fica por último (nas consultas http o programa não entrega a senha
-    // sozinho, então um 407 ali não quer dizer senha errada)
+    let geo = null; const errs = [];
     for (const src of [
       ['https://ipwho.is/?fields=success,ip,country,country_code', j => j.success !== false && j.ip ? { ip: j.ip, cc: j.country_code, name: j.country } : null],
       ['https://api.ipify.org?format=json', j => j.ip ? { ip: j.ip } : null],
-      ['https://ipapi.co/json/', j => j.ip ? { ip: j.ip, cc: j.country_code, name: j.country_name } : null],
-      ['http://ip-api.com/json/?fields=status,country,countryCode,query', j => j.status === 'success' && j.query ? { ip: j.query, cc: j.countryCode, name: j.country } : null]
+      ['https://ipapi.co/json/', j => j.ip ? { ip: j.ip, cc: j.country_code, name: j.country_name } : null]
     ]) {
-      if (Date.now() - t0 > 45000) break;
+      if (Date.now() - t0 > 40000) break;
       try {
-        const r = await get(src[0], 20000);
-        if (r.status === 407) { errs.push(src[0].startsWith('https') ? '407' : 'http 407'); continue; }
-        geo = src[1](await r.json()); if (geo) break;
+        const r = await proxyGet(p, src[0], 15000);
+        let j = null; try { j = JSON.parse(r.text); } catch (_) {}
+        geo = j && src[1](j); if (geo) break;
         errs.push('resposta sem IP (' + r.status + ')');
-      } catch (e) { errs.push(String(e && e.message || e)); }
+      } catch (e) {
+        const m = String(e && e.message || e); errs.push(m);
+        // erro do próprio proxy (senha, endereço, porta): não adianta tentar outro site
+        if (/^407$|PROXY_CONNECTION_FAILED|NAME_NOT_RESOLVED|^SOCKS .*auth/i.test(m)) break;
+      }
     }
     if (!geo) throw new Error(errs.join(' | ') || 'sem resposta');
+    // país quando o site que respondeu só deu o IP
+    if (!geo.cc) { try { const r = await proxyGet(p, 'https://ipwho.is/' + geo.ip + '?fields=country,country_code', 10000); const j = JSON.parse(r.text); geo.cc = j.country_code; geo.name = j.country; } catch (_) {} }
     // latência: ida e volta até o Tribal Wars por este proxy (melhor de 2)
     let best = Infinity;
-    for (let i = 0; i < 2; i++) { const s0 = performance.now(); try { await get('https://www.tribalwars.com.br/favicon.ico', 10000, { method: 'HEAD' }); best = Math.min(best, performance.now() - s0); } catch (_) {} }
+    for (let i = 0; i < 2; i++) { const s0 = performance.now(); try { await proxyGet(p, 'https://www.tribalwars.com.br/favicon.ico', 10000, 'HEAD'); best = Math.min(best, performance.now() - s0); } catch (_) {} }
     return { ok: true, ip: geo.ip, country: String(geo.cc || '').toLowerCase(), countryName: geo.name || '', latency: Number.isFinite(best) ? Math.round(best) : null };
   } catch (e) {
-    return { ok: false, message: proxyError(String(e && e.message || 'sem resposta')) };
-  } finally { testCreds.delete(key); }
+    const m = String(e && e.message || 'sem resposta');
+    return { ok: false, message: /^SOCKS /.test(m) ? socksError(m) : proxyError(m) };
+  }
 });
 // erro do Chromium → explicação em português
 function proxyError(m) {
   const map = [
-    [/(^|[^p] )407|PROXY_AUTH|^407/i, 'o proxy recusou o usuário ou a senha'],
+    [/(^|\D)407(\D|$)|PROXY_AUTH/i, 'o proxy recusou o usuário ou a senha'],
     [/PROXY_CONNECTION_FAILED|CONNECTION_REFUSED/i, 'não conectou no proxy (endereço ou porta errados, ou proxy fora do ar)'],
     [/NAME_NOT_RESOLVED|PROXY_.*RESOLV/i, 'o endereço do proxy não existe (confira o nome)'],
     [/TUNNEL_CONNECTION_FAILED/i, 'o proxy recusou abrir a conexão (talvez o tipo esteja errado: troque HTTP/SOCKS5)'],

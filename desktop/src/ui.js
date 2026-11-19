@@ -171,14 +171,14 @@ function addProxies(text, type) {
   testList(fresh);
   return added;
 }
-// testa vários ao mesmo tempo (6 por vez)
+// testa vários ao mesmo tempo (16 por vez)
 let testQueue = [], running = 0;
 function testList(list) {
   list.forEach(p => { if (!testQueue.includes(p.id) && !testing.has(p.id)) testQueue.push(p.id); });
   pump();
 }
 function pump() {
-  while (running < 6 && testQueue.length) {
+  while (running < 16 && testQueue.length) {
     const id = testQueue.shift(), p = profiles.find(x => x.id === id); if (!p) continue;
     running++; testing.add(id); renderRow(id);
     aoshi.testProfile(p).then(r => {
@@ -430,7 +430,11 @@ $('#btn-update').onclick = async () => { const msg = await aoshi.checkCode(); no
 // ---------- Eventos do processo principal ----------
 aoshi.on((ch, d) => {
   if (ch === 'tabs') { state = d; renderTabs(); }
-  else if (ch === 'profiles') { profiles = d.profiles || []; renderTabs(); }
+  else if (ch === 'profiles') {
+    profiles = d.profiles || []; renderTabs();
+    // 1.4.7: o teste antigo dava 407 falso em proxy HTTP com senha → testa de novo esses, uma vez
+    if (!localStorage.getItem('px-retest-147')) { localStorage.setItem('px-retest-147', '1'); const again = profiles.filter(p => p.status === 'bad' && /407|usuário ou a senha/.test(p.error || '')); if (again.length) testList(again); }
+  }
   else if (ch === 'tab-rename') startRename(d.id);
   else if (ch === 'tab-proxy') openPick('change');
   else if (ch === 'extensions') { extNames = d.list || []; observeExt(extPart); renderExtMenu(); if (!$('#m-set').hidden && !document.querySelector('section[data-sec="ext"]').hidden) renderExt(d.list || []); }
