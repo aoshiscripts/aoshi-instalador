@@ -12,6 +12,7 @@
     <div id="tabs"></div>
     <button id="add" class="icon" title="Nova aba (Ctrl+T)">+</button>
     <div class="spacer"></div>
+    <button id="btn-links" class="ghost" title="Abas vinculadas: cada proxy com a sua aba (abre de novo as que você fechou)">🔗 Abas vinculadas <span id="links-n"></span></button>
     <button id="btn-profiles" class="ghost" title="Perfis de proxy">Proxies</button>
     <button id="btn-update" class="ghost" title="Conferir se tem versão nova do Aoshi Pro">Aoshi Pro <span id="code-ver"></span></button>
     <button id="btn-settings" class="icon" title="Configurações">⚙</button>
@@ -29,6 +30,17 @@
     <!-- extensões fixadas (ícone, contador e janelinha de cada uma) e o menu de extensões -->
     <div id="ext-bar"></div>
     <button id="btn-ext" class="icon" title="Extensões"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M10 3.5a2 2 0 0 1 4 0V5h3a1 1 0 0 1 1 1v3h1.5a2 2 0 0 1 0 4H18v4a1 1 0 0 1-1 1h-3.5v-1.5a2 2 0 0 0-4 0V18H6a1 1 0 0 1-1-1v-4H3.5a2 2 0 0 1 0-4H5V6a1 1 0 0 1 1-1h4z"/></svg></button>
+  </div>
+
+  <!-- Abas vinculadas (proxy ↔ aba) -->
+  <div class="modal" id="m-links" hidden>
+    <div class="card wide">
+      <h3>Abas vinculadas</h3>
+      <div class="hint">Cada proxy fica preso a uma aba só. Fechar a aba não desfaz o vínculo: abra de novo por aqui e ela volta com o mesmo proxy, o mesmo nome e a última página.</div>
+      <input id="links-q" placeholder="Filtrar por nome da aba, proxy, país…" spellcheck="false">
+      <div id="links-list" class="links-list"></div>
+      <div class="actions"><button class="ghost" data-close>Fechar</button></div>
+    </div>
   </div>
 
   <!-- Nova aba / trocar proxy da aba -->

@@ -6,6 +6,8 @@ try { require('electron-chrome-extensions/browser-action').injectBrowserAction()
 contextBridge.exposeInMainWorld('aoshi', {
   on: fn => ipcRenderer.on('ui', (_, ch, data) => fn(ch, data)),
   newTab: (profileId, url) => ipcRenderer.invoke('tab:new', profileId, url),
+  linkOpen: pid => ipcRenderer.invoke('link:open', pid),
+  linkRemove: pid => ipcRenderer.invoke('link:remove', pid),
   closeTab: id => ipcRenderer.invoke('tab:close', id),
   renameTab: (id, name) => ipcRenderer.invoke('tab:rename', id, name),
   tabMenu: id => ipcRenderer.invoke('tab:menu', id),

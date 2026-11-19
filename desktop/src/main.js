@@ -250,10 +250,10 @@ async function setupExtensions(ses, part, profileId) {
     const ext = new ECE({
       session: ses,
       // abas e janelas que as extensões pedem viram abas deste mesmo proxy
-      createTab: async details => { const t = await newTab(profileId, details.url || S().home || HOME, details.active !== false); return [t.view.webContents, win]; },
+      createTab: async details => { const t = await newTab(profileId, details.url || S().home || HOME, details.active !== false, '', { shared: true }); return [t.view.webContents, win]; },
       selectTab: wc => { const t = tabs.find(x => alive(x) && x.view.webContents === wc); if (t) { activeId = t.id; layout(); pushTabs(); } },
       removeTab: wc => { const t = tabs.find(x => alive(x) && x.view.webContents === wc); if (t) closeTab(t.id); else setTimeout(pushTabs, 0); },
-      createWindow: async details => { for (const u of [].concat(details.url || S().home || HOME)) await newTab(profileId, u, true); return win; },
+      createWindow: async details => { for (const u of [].concat(details.url || S().home || HOME)) await newTab(profileId, u, true, '', { shared: true }); return win; },
       removeWindow: () => {}
     });
     extOf.set(part, ext);
@@ -319,7 +319,7 @@ function layout() {
 function tabInfo(t) {
   const wc = t.view.webContents, p = profileOf(t.profileId);
   const gd = t.profileId ? (guard.get('persist:aoshi-' + t.profileId) || {}) : null;
-  return { guard: gd ? (gd.state || 'checking') : '', guardIp: gd && gd.ip || '', name: t.name || '', country: p && p.country || '', proxyHost: p && p.proxy ? `${p.proxy.host}:${p.proxy.port}` : '', proxyIp: p && p.ip || '', wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: wc.getTitle() || 'Nova aba', url: wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
+  return { guard: gd ? (gd.state || 'checking') : '', guardIp: gd && gd.ip || '', name: t.name || '', country: p && p.country || '', proxyHost: p && p.proxy ? `${p.proxy.host}:${p.proxy.port}` : '', proxyIp: p && p.ip || '', wcId: wc.id, partition: 'persist:aoshi-' + (t.profileId || 'direto'), zoom: Math.round(wc.getZoomFactor() * 100), id: t.id, title: /blocked\.html/i.test(wc.getURL()) ? 'Bloqueada: proxy falhou' : (wc.getTitle() || 'Nova aba'), url: /^file:.*blocked\.html/i.test(wc.getURL()) ? (t.blockedUrl || wc.getURL()) : wc.getURL(), profileId: t.profileId || '', profileName: p ? p.name : 'Sem proxy', color: p ? p.color : '', loading: wc.isLoading(), canBack: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), canFwd: wc.navigationHistory?.canGoForward?.() ?? wc.canGoForward() };
 }
 // aba viva = ainda tem a página (uma extensão pode fechar a aba que ela abriu)
 const alive = t => { try { return !!(t && t.view && t.view.webContents && !t.view.webContents.isDestroyed()); } catch (_) { return false; } };
@@ -330,16 +330,40 @@ function pushTabs() {
   pruneTabs();
   if (!tabs.length && win && !win.isDestroyed()) { newTab('', S().home || HOME); return; }
   if (!tabs.some(t => t.id === activeId) && tabs.length) { activeId = tabs[tabs.length - 1].id; layout(); }
-  ui('tabs', { tabs: tabs.map(t => { try { return tabInfo(t); } catch (_) { return null; } }).filter(Boolean), active: activeId }); persistTabs(); selectExtTab();
+  persistTabs();
+  ui('tabs', { tabs: tabs.map(t => { try { return tabInfo(t); } catch (_) { return null; } }).filter(Boolean), active: activeId, links: linkInfo() }); selectExtTab();
 }
 let lastSel = null;
 function selectExtTab() {
   const t = tabs.find(x => x.id === activeId); if (!t || lastSel === t.id) return; lastSel = t.id;
   try { const e = extOf.get('persist:aoshi-' + (t.profileId || 'direto')); e && e.selectTab(t.view.webContents); } catch (_) {}
 }
-function persistTabs() { store.tabs = tabs.filter(alive).map(t => { let u = t.view.webContents.getURL() || HOME; if (/^file:.*blocked\.html/i.test(u)) u = t.blockedUrl || HOME; return { profileId: t.profileId || '', url: u, name: t.name || '' }; }); save(); }
+function persistTabs() {
+  store.tabs = tabs.filter(alive).map(t => { let u = t.view.webContents.getURL() || HOME; if (/^file:.*blocked\.html/i.test(u)) u = t.blockedUrl || HOME; return { profileId: t.profileId || '', url: u, name: t.name || '' }; });
+  // vínculo aba ↔ proxy: fica guardado mesmo depois de fechar a aba (nome e última página)
+  store.links = store.links || {};
+  store.tabs.forEach(x => { if (x.profileId && profileOf(x.profileId)) store.links[x.profileId] = { name: x.name, url: /^https?:/i.test(x.url) ? x.url : ((store.links[x.profileId] || {}).url || HOME), at: Date.now() }; });
+  save();
+}
+const linkInfo = () => {
+  const links = store.links || {}, out = {};
+  Object.keys(links).forEach(pid => { if (!profileOf(pid)) return; const t = tabs.find(x => alive(x) && x.profileId === pid); out[pid] = Object.assign({}, links[pid], { open: t ? t.id : '', name: t ? t.name : links[pid].name }); });
+  return out;
+};
 
-async function newTab(profileId, url, activate = true, name = '') {
+async function newTab(profileId, url, activate = true, name = '', opts = {}) {
+  // um proxy = uma aba: se o proxy já está numa aba aberta, vai para ela em vez de abrir outra
+  if (profileId && !opts.shared) {
+    const have = tabs.find(x => alive(x) && x.profileId === profileId);
+    if (have) {
+      activeId = have.id; layout(); pushTabs();
+      const p = profileOf(profileId);
+      ui('notice', { text: `${p ? p.name : 'Este proxy'} já está vinculado à aba "${have.name || have.view.webContents.getTitle() || 'sem nome'}". Um proxy só pode ficar em uma aba.` });
+      return have;
+    }
+    const link = (store.links || {})[profileId];
+    if (link && !name) name = link.name || '';
+  }
   const ses = await sessionFor(profileId);
   // sandbox ligado: necessário para a API das extensões nas páginas
   const view = new WebContentsView({ webPreferences: { session: ses, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), spellcheck: false } });
@@ -356,7 +380,7 @@ async function newTab(profileId, url, activate = true, name = '') {
     const menu = new Menu();
     try { (ext ? ext.getContextMenuItems(wc, params) : []).forEach(i => menu.append(i)); } catch (_) {}
     if (menu.items.length) menu.append(new MenuItem({ type: 'separator' }));
-    if (params.linkURL) menu.append(new MenuItem({ label: 'Abrir link em nova aba', click: () => newTab(t.profileId, params.linkURL, true) }));
+    if (params.linkURL) menu.append(new MenuItem({ label: t.profileId ? 'Abrir link nesta aba (proxy vinculado)' : 'Abrir link em nova aba', click: () => t.profileId ? wc.loadURL(params.linkURL) : newTab('', params.linkURL, true) }));
     if (params.isEditable) { menu.append(new MenuItem({ label: 'Recortar', role: 'cut' })); menu.append(new MenuItem({ label: 'Colar', role: 'paste' })); }
     if (params.selectionText || params.isEditable) menu.append(new MenuItem({ label: 'Copiar', role: 'copy' }));
     menu.append(new MenuItem({ label: 'Voltar', enabled: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), click: () => wc.navigationHistory?.goBack ? wc.navigationHistory.goBack() : wc.goBack() }));
@@ -368,7 +392,8 @@ async function newTab(profileId, url, activate = true, name = '') {
   try { wc.setWebRTCIPHandlingPolicy(webrtcPolicy(t)); } catch (_) {}
   wc.on('did-finish-load', () => { if (t.zoom == null) wc.setZoomFactor((Number(S().zoom) || 100) / 100); });
   wc.on('found-in-page', (_, r) => { if (t.id === activeId) ui('find', { matches: r.matches, active: r.activeMatchOrdinal }); });
-  wc.setWindowOpenHandler(({ url: u }) => { newTab(t.profileId, u, true); return { action: 'deny' }; });
+  // janela nova: aba com proxy abre na própria aba (o proxy não vai para outra); sem proxy, abre outra aba
+  wc.setWindowOpenHandler(({ url: u }) => { if (t.profileId) { if (/^https?:/i.test(u)) wc.loadURL(u); } else newTab('', u, true); return { action: 'deny' }; });
   wc.on('dom-ready', () => { try { if (TW_HOST.test(new URL(wc.getURL()).hostname)) inject(wc); } catch (_) {} });
   ['page-title-updated', 'did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading'].forEach(ev => wc.on(ev, pushTabs));
   wc.on('before-input-event', (e, input) => {
@@ -397,6 +422,12 @@ function closeTab(id) {
 }
 async function setTabProfile(id, profileId) {
   const t = tabs.find(x => x.id === id); if (!t) return;
+  if (profileId === t.profileId) return;
+  const busy = profileId && tabs.find(x => alive(x) && x.id !== id && x.profileId === profileId);
+  if (busy) { const p = profileOf(profileId); ui('notice', { text: `${p ? p.name : 'Esse proxy'} já está vinculado à aba "${busy.name || busy.view.webContents.getTitle() || 'sem nome'}".` }); return; }
+  // a aba troca de proxy: o vínculo antigo sai (o proxy velho fica livre); o novo vínculo nasce com o nome da aba
+  if (t.profileId && store.links) delete store.links[t.profileId];
+  if (profileId && store.links) delete store.links[profileId];
   const url = t.view.webContents.getURL() || HOME;
   // trocar de perfil = trocar a sessão (cookies e proxy): recria a aba no mesmo lugar
   const i = tabs.indexOf(t);
@@ -441,6 +472,9 @@ function createWindow() {
 
 // ---------- Mensagens da barra (ui.html) ----------
 ipcMain.handle('tab:new', (_, profileId, url) => newTab(profileId, url).then(() => true));
+// abas vinculadas: abrir a aba do proxy (com o nome e a última página) ou desfazer o vínculo
+ipcMain.handle('link:open', async (_, pid) => { const l = (store.links || {})[pid]; if (!l || !profileOf(pid)) return false; await newTab(pid, l.url || HOME, true, l.name || ''); return true; });
+ipcMain.handle('link:remove', (_, pid) => { if (store.links) delete store.links[pid]; const t = tabs.find(x => alive(x) && x.profileId === pid); if (t) closeTab(t.id); else { save(); pushTabs(); } return true; });
 ipcMain.handle('tab:close', (_, id) => closeTab(id));
 // nome da aba (ex.: "br143 aoshi") — aparece no lugar do título da página
 ipcMain.handle('tab:rename', (_, id, name) => { const t = tabs.find(x => x.id === id); if (t) { t.name = String(name || '').trim().slice(0, 40); pushTabs(); } });
@@ -451,7 +485,8 @@ ipcMain.handle('tab:menu', (_, id) => {
     { label: 'Renomear aba…', click: () => ui('tab-rename', { id }) },
     ...(t.name ? [{ label: 'Tirar o nome', click: () => { t.name = ''; pushTabs(); } }] : []),
     { label: 'Trocar o proxy…', click: () => { activeId = id; layout(); pushTabs(); ui('tab-proxy', { id }); } },
-    { label: 'Duplicar aba', click: () => newTab(t.profileId, t.view.webContents.getURL() || HOME, true, t.name ? t.name + ' 2' : '') },
+    t.profileId ? { label: 'Duplicar aba (o proxy vinculado não vai para outra aba)', enabled: false } : { label: 'Duplicar aba', click: () => newTab('', t.view.webContents.getURL() || HOME, true, t.name ? t.name + ' 2' : '') },
+    ...(t.profileId ? [{ label: 'Desvincular o proxy desta aba (fecha a aba)', click: () => { delete (store.links || {})[t.profileId]; closeTab(id); } }] : []),
     { type: 'separator' },
     { label: 'Recarregar', click: () => t.view.webContents.reload() },
     { label: 'Fechar aba', click: () => closeTab(id) }
@@ -473,6 +508,8 @@ ipcMain.handle('tab:nav', (_, id, what, arg) => {
 const proxyKey = p => p && p.proxy ? [p.proxy.type, p.proxy.host, p.proxy.port, p.proxy.user, p.proxy.pass].join('|') : '';
 ipcMain.handle('profiles:save', (_, list) => {
   const before = new Map(store.profiles.map(p => [p.id, proxyKey(p)]));
+  const keepIds = new Set((Array.isArray(list) ? list : []).map(p => p && p.id).filter(Boolean));
+  if (store.links) Object.keys(store.links).forEach(pid => { if (!keepIds.has(pid)) delete store.links[pid]; });
   store.profiles = (Array.isArray(list) ? list : []).slice(0, 5000).map(p => ({
     id: p.id || crypto.randomUUID(), name: String(p.name || 'Proxy').slice(0, 40), color: p.color || '#8b5cf6',
     proxy: { type: p.proxy?.type || 'http', host: String(p.proxy?.host || '').trim(), port: Number(p.proxy?.port) || '', user: String(p.proxy?.user || ''), pass: String(p.proxy?.pass || '') },

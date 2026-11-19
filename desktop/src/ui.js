@@ -11,7 +11,7 @@ const profColor = id => (profiles.find(p => p.id === id) || {}).color || '#52525
 function renderTabs() {
   if (editingTab && document.querySelector('#tabs .tab-edit')) return; // não redesenha enquanto renomeia
   const tabsHTML = state.tabs.map(t => {
-    const tip = [t.name ? `${t.name} — ${t.title}` : t.title, t.profileId ? `Proxy: ${t.profileName}${t.proxyHost ? ' (' + t.proxyHost + ')' : ''}${t.proxyIp ? ' · IP ' + t.proxyIp : ''}` : 'Sem proxy (conexão direta)', t.guard === 'ok' ? `🛡 Proteção ativa: os sites veem o IP ${t.guardIp || 'do proxy'}` : t.guard === 'down' ? '⛔ Bloqueada: o proxy falhou, nada sai por esta aba (o seu IP está protegido)' : t.guard ? '🛡 Conferindo o proxy…' : '', 'Duplo clique: renomear · botão direito: mais opções'].filter(Boolean).join('\n');
+    const tip = [t.name ? `${t.name} — ${t.title}` : t.title, t.profileId ? `🔗 Proxy vinculado: ${t.profileName}${t.proxyHost ? ' (' + t.proxyHost + ')' : ''}${t.proxyIp ? ' · IP ' + t.proxyIp : ''}` : 'Sem proxy (conexão direta)', t.guard === 'ok' ? `🛡 Proteção ativa: os sites veem o IP ${t.guardIp || 'do proxy'}` : t.guard === 'down' ? '⛔ Bloqueada: o proxy falhou, nada sai por esta aba (o seu IP está protegido)' : t.guard ? '🛡 Conferindo o proxy…' : '', 'Duplo clique: renomear · botão direito: mais opções'].filter(Boolean).join('\n');
     const mark = /^[a-z]{2}$/.test(t.country || '') ? `<img class="tflag" src="flags/${t.country}.svg" alt="">` : `<span class="dot" style="background:${t.profileId ? esc(t.color || profColor(t.profileId)) : '#52525b'}"></span>`;
     return `<div class="tab${t.id === state.active ? ' on' : ''}${t.loading ? ' loading' : ''}${t.name ? ' named' : ''}" data-id="${t.id}" title="${esc(tip)}">
     ${mark}${t.guard === 'down' ? '<span class="gbad" title="Proxy falhou: aba bloqueada">⛔</span>' : ''}<span class="t">${esc(t.name || t.title)}</span><span class="p">${esc(t.profileName)}</span><span class="x" data-x="${t.id}" title="Fechar (Ctrl+W)">✕</span></div>`;
@@ -91,6 +91,44 @@ document.querySelectorAll('.modal').forEach(m => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal:not([hidden])').forEach(m => show('#' + m.id, false)); });
 
+// ---------- Abas vinculadas (proxy ↔ aba) ----------
+const tabLabel = l => (l && l.name) || (l && l.open && ((state.tabs || []).find(x => x.id === l.open) || {}).title) || hostOf(l && l.url) || 'aba sem nome';
+const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return ''; } };
+function updateLinksBtn() {
+  const links = state.links || {}, all = Object.keys(links).length, closed = Object.values(links).filter(l => !l.open).length;
+  $('#links-n').textContent = all ? `${closed ? closed + ' fechada(s) · ' : ''}${all}` : '';
+  $('#btn-links').hidden = !all;
+}
+function renderLinks() {
+  const q = ($('#links-q').value || '').trim().toLowerCase();
+  const links = state.links || {};
+  const rows = Object.entries(links).map(([pid, l]) => ({ pid, l, p: profiles.find(x => x.id === pid), i: profiles.findIndex(x => x.id === pid) })).filter(r => r.p)
+    .filter(r => !q || `${tabLabel(r.l)} ${r.p.name} ${r.p.proxy.host}:${r.p.proxy.port} ${countryPT(r.p)} ${r.p.ip || ''} ${r.l.url}`.toLowerCase().includes(q))
+    .sort((a, b) => (!!b.l.open - !!a.l.open) || tabLabel(a.l).localeCompare(tabLabel(b.l), 'pt-BR', { numeric: true }));
+  $('#links-q').hidden = Object.keys(links).length < 6;
+  $('#links-list').innerHTML = rows.length ? rows.map(r => `<div class="lk${r.l.open ? ' is-open' : ''}" data-pid="${esc(r.pid)}">
+      <span class="lk-st" title="${r.l.open ? 'Aba aberta' : 'Aba fechada'}"></span>
+      <span class="lk-tab"><b>${esc(tabLabel(r.l))}</b><small>${esc(hostOf(r.l.url) || '')}</small></span>
+      <span class="lk-arrow">⇄</span>
+      <span class="lk-px">${flagOf(r.p)}<span><span class="lk-pn"><b>${esc(r.p.name)}</b><small>#${r.i + 1}</small></span><small>${esc(r.p.proxy.host)}:${esc(r.p.proxy.port)}${r.p.ip ? ' · IP ' + esc(r.p.ip) : ''}</small></span></span>
+      ${latOf(r.p)}
+      <button class="${r.l.open ? 'ghost ' : ''}sm" data-lk-open>${r.l.open ? 'Ir para a aba' : 'Abrir aba'}</button>
+      <button class="ghost sm" data-lk-del title="Desfaz o vínculo: o proxy fica livre para outra aba${r.l.open ? ' (a aba fecha)' : ''}">Desvincular</button>
+    </div>`).join('') : '<div class="hint">Nenhuma aba vinculada ainda. Abra uma aba com proxy (+) e ela fica vinculada a ele.</div>';
+}
+$('#btn-links').onclick = () => { $('#links-q').value = ''; renderLinks(); show('#m-links', true); };
+$('#links-q').addEventListener('input', renderLinks);
+$('#links-list').addEventListener('click', async e => {
+  const row = e.target.closest('.lk'); if (!row) return;
+  const pid = row.dataset.pid, l = (state.links || {})[pid]; if (!l) return;
+  if (e.target.closest('[data-lk-open]')) { show('#m-links', false); if (l.open) aoshi.activate(l.open); else await aoshi.linkOpen(pid); }
+  else if (e.target.closest('[data-lk-del]')) {
+    const b = e.target.closest('[data-lk-del]');
+    if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = l.open ? 'Fechar e desvincular?' : 'Confirmar'; setTimeout(() => { if (b.isConnected) { b.dataset.confirm = ''; b.textContent = 'Desvincular'; } }, 3000); return; }
+    await aoshi.linkRemove(pid);
+  }
+});
+
 // Escolher o proxy (nova aba ou trocar o da aba atual)
 let pickMode = 'new', pickSel = '';
 function openPick(mode) {
@@ -111,15 +149,32 @@ function renderPick() {
     .concat(profiles.map((p, i) => ({ id: p.id, i, p, label: p.name, meta: `${p.proxy.host}:${p.proxy.port}` })))
     .filter(it => !q || !it.p || `${it.i + 1} ${it.label} ${it.meta} ${it.p.countryName} ${countryPT(it.p)} ${it.p.country} ${it.p.ip}`.toLowerCase().includes(q));
   $('#pick-q').hidden = profiles.length < 6;
-  $('#pick-list').innerHTML = items.map(it => `<div class="pick${it.id === pickSel ? ' on' : ''}${it.p && it.p.status === 'bad' ? ' is-bad' : ''}" data-id="${esc(it.id)}">${it.p ? `<span class="num">${it.i + 1}</span>${flagOf(it.p)}` : it.html}<span class="n">${esc(it.label)}</span><span class="m">${esc(it.meta)}</span>${it.p ? latOf(it.p) : ''}</div>`).join('') || '<div class="hint">Nada com esse filtro.</div>';
+  const links = state.links || {}, cur = active();
+  const tagOf = it => {
+    if (!it.p) return '';
+    const l = links[it.id]; if (!l) return '';
+    const mine = pickMode === 'change' && cur && cur.profileId === it.id;
+    if (l.open && !mine) return `<span class="ltag busy" title="Em uso na aba &quot;${esc(tabLabel(l))}&quot; — um proxy só pode ficar em uma aba (clique para ir até ela)">em uso: ${esc(tabLabel(l))}</span>`;
+    if (l.open) return `<span class="ltag on">esta aba</span>`;
+    return `<span class="ltag" title="Ao escolher, abre a aba vinculada com o nome e a última página dela">🔗 ${esc(tabLabel(l))}</span>`;
+  };
+  const busyOf = it => { const l = it.p && links[it.id]; return !!(l && l.open && !(pickMode === 'change' && cur && cur.profileId === it.id)); };
+  $('#pick-list').innerHTML = items.map(it => `<div class="pick${it.id === pickSel ? ' on' : ''}${it.p && it.p.status === 'bad' ? ' is-bad' : ''}${busyOf(it) ? ' is-busy' : ''}" data-id="${esc(it.id)}"${busyOf(it) ? ' data-busy="1"' : ''}>${it.p ? `<span class="num">${it.i + 1}</span>${flagOf(it.p)}` : it.html}<span class="n">${esc(it.label)}</span>${tagOf(it)}<span class="m">${esc(it.meta)}</span>${it.p ? latOf(it.p) : ''}</div>`).join('') || '<div class="hint">Nada com esse filtro.</div>';
 }
 $('#pick-q').addEventListener('input', renderPick);
-$('#pick-list').addEventListener('click', e => { const p = e.target.closest('.pick'); if (!p) return; pickSel = p.dataset.id; renderPick(); });
+$('#pick-list').addEventListener('click', e => {
+  const p = e.target.closest('.pick'); if (!p) return;
+  // proxy em uso em outra aba: vai para a aba dele
+  if (p.dataset.busy) { const l = (state.links || {})[p.dataset.id]; if (l && l.open) { show('#m-pick', false); aoshi.activate(l.open); notice(`Esse proxy já está na aba "${tabLabel(l)}".`); } return; }
+  pickSel = p.dataset.id; renderPick();
+});
 $('#pick-list').addEventListener('dblclick', () => $('#pick-ok').click());
 $('#pick-ok').onclick = async () => {
   localStorage.setItem('last-profile', pickSel);
   show('#m-pick', false);
-  if (pickMode === 'new') await aoshi.newTab(pickSel, $('#pick-url').value.trim() || 'https://www.tribalwars.com.br/');
+  const link = pickSel && (state.links || {})[pickSel];
+  if (pickMode === 'new' && link && !link.open) await aoshi.linkOpen(pickSel); // proxy vinculado: abre a aba dele
+  else if (pickMode === 'new') await aoshi.newTab(pickSel, $('#pick-url').value.trim() || 'https://www.tribalwars.com.br/');
   else if (state.active) await aoshi.setProfile(state.active, pickSel);
 };
 $('#pick-manage').onclick = () => { show('#m-pick', false); openProfiles(); };
@@ -208,6 +263,7 @@ const rowHTML = (p, i) => `<div class="pxr${p.status === 'bad' ? ' is-bad' : ''}
   <span class="cty" title="${esc(p.ip ? 'IP visto pelos sites: ' + p.ip : '')}">${esc(countryPT(p))}</span>
   ${latOf(p)}
   <button class="ghost sm" data-test title="Testar de novo">Testar</button><button class="ghost sm" data-open title="Abre uma aba com este proxy numa página que mostra o IP e o país">Abrir</button><button class="ghost sm" data-del title="Excluir">✕</button>
+  ${(state.links || {})[p.id] ? `<div class="pxlnk">🔗 Vinculado à aba <b>${esc(tabLabel(state.links[p.id]))}</b> · ${state.links[p.id].open ? 'aberta' : 'fechada'}</div>` : ''}
   ${p.status === 'bad' && p.error ? `<div class="pxerr">${esc(p.error)}</div>` : ''}</div>`;
 function renderProfiles() {
   const q = ($('#px-q').value || '').trim().toLowerCase();
@@ -439,7 +495,8 @@ $('#btn-update').onclick = async () => { const msg = await aoshi.checkCode(); no
 
 // ---------- Eventos do processo principal ----------
 aoshi.on((ch, d) => {
-  if (ch === 'tabs') { state = d; renderTabs(); }
+  if (ch === 'tabs') { state = d; renderTabs(); updateLinksBtn(); if (!$('#m-links').hidden) renderLinks(); if (!$('#m-pick').hidden) renderPick(); }
+  else if (ch === 'notice') notice(d.text || '');
   else if (ch === 'profiles') {
     profiles = d.profiles || []; renderTabs();
     // 1.4.7: o teste antigo dava 407 falso em proxy HTTP com senha → testa de novo esses, uma vez
