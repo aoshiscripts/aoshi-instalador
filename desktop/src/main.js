@@ -213,7 +213,25 @@ function onExtLoaded(fromPart, ext) {
 function extList() {
   const s = sesOf.get('persist:aoshi-direto') || [...sesOf.values()][0];
   if (!s) return [];
-  return allExt(s).filter(e => String(e.path || '').startsWith(EXT_DIR())).map(e => ({ id: e.id, name: e.name, version: e.version || (e.manifest && e.manifest.version) || '' }));
+  return allExt(s).filter(e => String(e.path || '').startsWith(EXT_DIR())).map(e => ({ id: e.id, name: e.name, version: e.version || (e.manifest && e.manifest.version) || '', icon: extIconData(e) }));
+}
+// ícone da extensão lido do próprio pacote (manifest), para quando o ícone do botão não vem
+const iconCache = new Map();
+function extIconData(e) {
+  if (iconCache.has(e.id + e.version)) return iconCache.get(e.id + e.version);
+  let out = '';
+  try {
+    const m = e.manifest || {}, act = m.action || m.browser_action || {};
+    const pick = obj => { if (!obj) return ''; if (typeof obj === 'string') return obj; const ks = Object.keys(obj).map(Number).filter(n => n > 0).sort((a, b) => a - b); const k = ks.find(n => n >= 32) || ks[ks.length - 1]; return k ? obj[k] : ''; };
+    const rel = pick(act.default_icon) || pick(m.icons);
+    if (rel) {
+      const { nativeImage } = require('electron');
+      const img = nativeImage.createFromPath(path.join(e.path, String(rel).replace(/^\//, '')));
+      if (!img.isEmpty()) out = img.resize({ width: 32, height: 32, quality: 'best' }).toDataURL();
+    }
+  } catch (_) {}
+  iconCache.set(e.id + e.version, out);
+  return out;
 }
 async function setupExtensions(ses, part, profileId) {
   sesOf.set(part, ses);

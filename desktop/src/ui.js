@@ -316,7 +316,7 @@ $('.set-nav').addEventListener('click', e => { const a = e.target.closest('a[dat
 async function renderExt(list) {
   list = list || await aoshi.extList();
   extNames = list;
-  $('#ext-list').innerHTML = list.length ? list.map(e => `<div class="item"><div class="txt ext-n"><img src="crx://extension-icon/${esc(e.id)}/32/2?partition=persist:aoshi-direto" alt=""><span><b>${esc(e.name)}</b><small>versão ${esc(e.version)}</small></span></div><div class="ctl"><label class="sw" title="Mostrar o botão na barra"><input type="checkbox" data-pin="${esc(e.id)}"${unpinned().has(e.id) ? '' : ' checked'}><span></span></label><button class="ghost sm" data-ext-del="${esc(e.id)}">Remover</button></div></div>`).join('') : '<div class="item"><div class="txt"><small>Nenhuma extensão instalada ainda.</small></div></div>';
+  $('#ext-list').innerHTML = list.length ? list.map(e => `<div class="item"><div class="txt ext-n"><img src="${esc(e.icon || 'crx://extension-icon/' + e.id + '/32/2?partition=persist:aoshi-direto')}" alt=""><span><b>${esc(e.name)}</b><small>versão ${esc(e.version)}</small></span></div><div class="ctl"><label class="sw" title="Mostrar o botão na barra"><input type="checkbox" data-pin="${esc(e.id)}"${unpinned().has(e.id) ? '' : ' checked'}><span></span></label><button class="ghost sm" data-ext-del="${esc(e.id)}">Remover</button></div></div>`).join('') : '<div class="item"><div class="txt"><small>Nenhuma extensão instalada ainda.</small></div></div>';
 }
 $('#ext-store').onclick = async () => { show('#m-set', false); await aoshi.extStore(); };
 // ---------- Botões das extensões na barra e menu da peça ----------
@@ -328,15 +328,28 @@ function setPinned(id, on) { const u = unpinned(); if (on) u.delete(id); else u.
 const extIcon = (id, mod) => `crx://extension-icon/${encodeURIComponent(id)}/32/2?tabId=${encodeURIComponent(extTab)}&partition=${encodeURIComponent(extPart)}${mod ? '&t=' + mod : ''}`;
 const actInfo = a => Object.assign({}, a, (a.tabs || {})[extTab] || {});
 const extName = id => (extNames.find(e => e.id === id) || {}).name || '';
+const extPkgIcon = id => (extNames.find(e => e.id === id) || {}).icon || '';
+// se o ícone do botão não carregar, usa o ícone do pacote da extensão
+function iconFallback(root) {
+  root.querySelectorAll('img[data-ext-icon]').forEach(img => {
+    if (img.dataset.fb) return; img.dataset.fb = '1';
+    const fb = () => { const d = extPkgIcon(img.dataset.extIcon); if (d && img.src !== d) img.src = d; else img.style.visibility = 'hidden'; };
+    img.addEventListener('error', fb);
+    if (img.complete && !img.naturalWidth) fb();
+  });
+}
 function renderExtBar() {
   const u = unpinned();
-  $('#ext-bar').innerHTML = (extState.actions || []).filter(a => !u.has(a.id)).map(a => { const i = actInfo(a); return `<button class="icon ext-btn" data-ext="${esc(a.id)}" title="${esc(i.title || extName(a.id))}"><img src="${extIcon(a.id, i.iconModified)}" alt=""><span class="badge"${i.text ? '' : ' hidden'} style="background:${esc(i.color || 'var(--acc)')}">${esc(i.text || '')}</span></button>`; }).join('');
+  const bar = $('#ext-bar');
+  bar.innerHTML = (extState.actions || []).filter(a => !u.has(a.id)).map(a => { const i = actInfo(a); return `<button class="icon ext-btn" data-ext="${esc(a.id)}" title="${esc(i.title || extName(a.id))}"><img src="${extIcon(a.id, i.iconModified)}" data-ext-icon="${esc(a.id)}" alt=""><span class="badge"${i.text ? '' : ' hidden'} style="background:${esc(i.color || 'var(--acc)')}">${esc(i.text || '')}</span></button>`; }).join('');
+  iconFallback(bar);
 }
 function renderExtMenu() {
   const box = $('#em-list'); if (!box) return;
   const u = unpinned(), acts = new Map((extState.actions || []).map(a => [a.id, a]));
   const list = extNames.length ? extNames : (extState.actions || []).map(a => ({ id: a.id, name: a.title || a.id }));
-  box.innerHTML = list.length ? list.map(e => `<div class="em-item" data-ext="${esc(e.id)}"><img src="${extIcon(e.id)}" alt=""><span class="n">${esc(e.name)}</span><button class="icon pin${u.has(e.id) ? '' : ' on'}" data-pin-toggle="${esc(e.id)}" title="${u.has(e.id) ? 'Fixar na barra' : 'Tirar da barra'}"><svg viewBox="0 0 24 24" width="15" height="15" fill="${u.has(e.id) ? 'none' : 'currentColor'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2h-4v5l-1 1-1-1v-5H7v-2l3-3z"/></svg></button></div>`).join('') : '<div class="em-empty">Nenhuma extensão instalada.<br>Abra a Chrome Web Store para adicionar.</div>';
+  setTimeout(() => iconFallback(box), 0);
+  box.innerHTML = list.length ? list.map(e => `<div class="em-item" data-ext="${esc(e.id)}"><img src="${extIcon(e.id)}" data-ext-icon="${esc(e.id)}" alt=""><span class="n">${esc(e.name)}</span><button class="icon pin${u.has(e.id) ? '' : ' on'}" data-pin-toggle="${esc(e.id)}" title="${u.has(e.id) ? 'Fixar na barra' : 'Tirar da barra'}"><svg viewBox="0 0 24 24" width="15" height="15" fill="${u.has(e.id) ? 'none' : 'currentColor'}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2h-4v5l-1 1-1-1v-5H7v-2l3-3z"/></svg></button></div>`).join('') : '<div class="em-empty">Nenhuma extensão instalada.<br>Abra a Chrome Web Store para adicionar.</div>';
 }
 function observeExt(part) {
   if (!window.browserAction) return;
