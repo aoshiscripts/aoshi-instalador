@@ -173,8 +173,10 @@ function addProxies(text, type) {
 }
 // testa vários ao mesmo tempo (16 por vez)
 let testQueue = [], running = 0;
-function testList(list) {
-  list.forEach(p => { if (!testQueue.includes(p.id) && !testing.has(p.id)) testQueue.push(p.id); });
+function testList(list, first) {
+  // um proxy só (botão Testar / troca de tipo) passa na frente da fila
+  if (first || list.length === 1) list.slice().reverse().forEach(p => { if (testing.has(p.id)) return; testQueue = testQueue.filter(x => x !== p.id); testQueue.unshift(p.id); });
+  else list.forEach(p => { if (!testQueue.includes(p.id) && !testing.has(p.id)) testQueue.push(p.id); });
   pump();
 }
 function pump() {
@@ -201,7 +203,7 @@ function updateStat() {
 const rowHTML = (p, i) => `<div class="pxr${p.status === 'bad' ? ' is-bad' : ''}" data-id="${esc(p.id)}">
   <span class="num">${i + 1}</span>${flagOf(p)}
   <input class="nm" data-k="name" value="${esc(p.name)}" title="Nome">
-  <span class="addr" title="${esc(p.proxy.type)}://${esc(p.proxy.host)}:${esc(p.proxy.port)}">${esc(p.proxy.host)}:${esc(p.proxy.port)}</span>
+  <span class="addr" title="${esc(p.proxy.type)}://${esc(p.proxy.host)}:${esc(p.proxy.port)}"><button class="ptype t-${esc(p.proxy.type || 'http')}" data-ptype title="Tipo do proxy: clique para trocar (HTTP → SOCKS5 → HTTPS) e testar de novo">${esc((p.proxy.type || 'http').toUpperCase())}</button>${esc(p.proxy.host)}:${esc(p.proxy.port)}</span>
   <span class="usr">${p.proxy.user ? esc(p.proxy.user) : '<i>sem login</i>'}</span>
   <span class="cty" title="${esc(p.ip ? 'IP visto pelos sites: ' + p.ip : '')}">${esc(countryPT(p))}</span>
   ${latOf(p)}
@@ -238,6 +240,12 @@ $('#prof-list').addEventListener('change', e => {
 $('#prof-list').addEventListener('click', e => {
   const row = e.target.closest('.pxr'); if (!row || row.classList.contains('head')) return;
   const id = row.dataset.id;
+  if (e.target.closest('[data-ptype]')) {
+    const p = profiles.find(x => x.id === id); if (!p) return;
+    const order = ['http', 'socks5', 'https']; p.proxy.type = order[(order.indexOf(p.proxy.type || 'http') + 1) % order.length];
+    Object.assign(p, { status: '', error: '', latency: null, ip: '', country: '', countryName: '' });
+    saveSoon(); renderRow(id); testList([p]); return;
+  }
   if (e.target.closest('[data-del]')) { profiles = profiles.filter(p => p.id !== id); testQueue = testQueue.filter(x => x !== id); saveSoon(); renderProfiles(); return; }
   if (e.target.closest('[data-test]')) { const p = profiles.find(x => x.id === id); if (p) testList([p]); }
   if (e.target.closest('[data-open]')) { show('#m-prof', false); aoshi.newTab(id, 'https://ipwho.is/'); }

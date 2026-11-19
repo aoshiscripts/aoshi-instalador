@@ -569,7 +569,7 @@ ipcMain.handle('profiles:test', async (_, p) => {
     if (!ip) throw new Error(errs.join(' | ') || 'sem resposta');
     // 2) se o IP for o seu próprio, o tráfego não passou pelo proxy
     const mine = await directIp();
-    if (mine && mine === ip) return { ok: false, message: `o proxy deixou passar o seu IP real (${ip}); ele não está escondendo a conexão` };
+    if (mine && mine === ip) return { ok: false, message: `o proxy devolveu o seu IP real (${ip}): ele não está escondendo a conexão. Confira o tipo (clique em ${String(p.proxy.type || 'http').toUpperCase()} para trocar) e se o plano no provedor está ativo` };
     // 3) país do IP: votação entre vários bancos de localização (um só às vezes erra)
     const geo = await geoOf(ip);
     // latência: ida e volta até o Tribal Wars por este proxy (melhor de 2)
