@@ -193,6 +193,8 @@ function hardenSession(ses, part) {
     }
     // link de script de usuário (.user.js) aberto numa aba: instala pelo gerenciador em vez de mostrar o código
     if (d.resourceType === 'mainFrame') { try { if (/\.user\.js$/i.test(new URL(d.url).pathname)) { cb({ cancel: true }); usOpenInstall(d.url); return; } } catch (_) {} }
+    // alerta de site falso: endereço parecido com o do Tribal Wars que não é o oficial
+    if (d.resourceType === 'mainFrame') { try { const h = new URL(d.url).hostname; if (isLookalike(h) && !phishAllow.has(h)) { cb({ cancel: true }); if (d.webContents) showPhish(d.webContents, d.url, 'endereço parecido com o do Tribal Wars'); return; } } catch (_) {} }
     try { const h = new URL(d.url).hostname; if (S().blockTrackers && TRACKERS.test(h) && d.resourceType !== 'mainFrame') return cb({ cancel: true }); } catch (_) {}
     cb({});
   });
@@ -353,7 +355,7 @@ function selectExtTab() {
   try { const e = extOf.get('persist:aoshi-' + (t.profileId || 'direto')); e && e.selectTab(t.view.webContents); } catch (_) {}
 }
 function persistTabs() {
-  store.tabs = tabs.filter(alive).map(t => { let u = t.view.webContents.getURL() || HOME; if (/^file:.*blocked\.html/i.test(u)) u = t.blockedUrl || HOME; return { profileId: t.profileId || '', url: u, name: t.name || '' }; });
+  store.tabs = tabs.filter(alive).map(t => { let u = t.view.webContents.getURL() || HOME; if (/^file:.*blocked\.html/i.test(u)) u = t.blockedUrl || HOME; else if (/^file:.*phish\.html/i.test(u)) u = HOME; return { profileId: t.profileId || '', url: u, name: t.name || '' }; });
   // vínculo aba ↔ proxy: fica guardado mesmo depois de fechar a aba (nome e última página)
   store.links = store.links || {};
   store.tabs.forEach(x => { if (x.profileId && profileOf(x.profileId)) store.links[x.profileId] = { name: x.name, url: /^https?:/i.test(x.url) ? x.url : ((store.links[x.profileId] || {}).url || HOME), at: Date.now() }; });
@@ -828,6 +830,38 @@ app.on('login', (event, wc, details, authInfo, callback) => {
   if (!creds && details && details.url) { /* pedidos sem aba (ex.: favicon): usa o primeiro perfil com esse host */ const p = store.profiles.find(x => x.proxy && authInfo.host === x.proxy.host && Number(authInfo.port) === Number(x.proxy.port)) || store.profiles.find(x => x.proxy && authInfo.host === x.proxy.host); creds = p && p.proxy; }
   if (creds && creds.user) { event.preventDefault(); callback(creds.user, creds.pass || ''); }
 });
+
+// ---------- Alerta de site falso ----------
+// Endereços oficiais do jogo e da InnoGames. Um endereço que lembra "tribalwars" (troca de letras, números no
+// lugar de letras, hífen, letra a mais ou a menos) e não é oficial é bloqueado com um aviso antes de abrir.
+const OFFICIAL_HOST = /(^|\.)((tribalwars\.(com\.br|net|com\.pt|co\.uk|us|nl|se|ae|asia|works|com\.tr|it|gr|ch|cz|sk|hu|ro|si|hr|ru|pl|de|fr|es|dk|no|fi))|die-staemme\.de|staemme\.ch|plemiona\.pl|guerretribale\.fr|divokekmeny\.cz|divoke-kmene\.sk|klanhaboru\.hu|triburile\.ro|vojnaplemen\.si|plemena\.com|fyletikesmaxes\.gr|tribals\.it|innogames\.(com|de)|innogamescdn\.com|innogames-de\.ensighten\.com)$/i;
+const phishAllow = new Set(); // endereços liberados por você (guardados no arquivo do programa)
+let phishLoaded = false;
+function phishLoad() { if (phishLoaded) return; phishLoaded = true; (store.phishAllow || []).forEach(h => phishAllow.add(h)); }
+function lev(a, b) { const m = a.length, n = b.length; if (Math.abs(m - n) > 3) return 9; const d = Array.from({ length: m + 1 }, (_, i) => [i]); for (let j = 1; j <= n; j++) d[0][j] = j; for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[m][n]; }
+function isLookalike(host) {
+  host = String(host || '').toLowerCase().replace(/^www\./, '');
+  phishLoad();
+  if (!host || OFFICIAL_HOST.test(host) || /^(localhost|127\.|\d+\.\d+\.\d+\.\d+$)/.test(host)) return false;
+  const norm = x => x.replace(/vv/g, 'w').replace(/rn/g, 'm').replace(/[0]/g, 'o').replace(/[1!|]/g, 'l').replace(/[3]/g, 'e').replace(/[4@]/g, 'a').replace(/[5$]/g, 's').replace(/[7]/g, 't').replace(/[-_]/g, '');
+  const parts = host.split('.');
+  const labels = parts.slice(0, -1).concat([parts.slice(0, -1).join('')]);
+  for (const l of labels) {
+    const n = norm(l);
+    if (n.length < 6) continue;
+    if (n.includes('tribalwar') || n.includes('triballwar') || n.includes('tribawars') || n.includes('guerrastribais')) return true;
+    if (n.length >= 8 && n.length <= 14 && (lev(n, 'tribalwars') <= 2 || lev(n, 'tribalwar') <= 1)) return true;
+  }
+  return false;
+}
+function showPhish(wc, url, why) {
+  const q = new URLSearchParams({ u: url || '', w: why || '' });
+  setImmediate(() => { try { if (!wc.isDestroyed()) wc.loadFile(path.join(__dirname, 'phish.html'), { search: q.toString() }); } catch (_) {} });
+}
+// a página do aviso: "abrir mesmo assim" libera o endereço até fechar o programa
+ipcMain.on('phish:allow', (e, url) => { try { const h = new URL(url).hostname.toLowerCase(); phishLoad(); phishAllow.add(h); phishAllow.add(h.replace(/^www\./, '')); store.phishAllow = [...phishAllow].slice(-200); save(); e.sender.loadURL(url); } catch (_) {} });
+// o preload avisa quando uma página que não é oficial pede senha usando o nome do jogo
+ipcMain.on('phish:suspect', (e, url) => { try { const h = new URL(url).hostname.toLowerCase(); phishLoad(); if (phishAllow.has(h) || OFFICIAL_HOST.test(h.replace(/^www\./, ''))) return; showPhish(e.sender, url, 'página pedindo senha com o nome do Tribal Wars'); } catch (_) {} });
 
 // ---------- Scripts de usuário (no lugar do Tampermonkey) ----------
 // Os scripts ficam em scripts.json; os dados que cada script salva (GM_setValue) ficam separados por proxy

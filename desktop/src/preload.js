@@ -4,6 +4,25 @@
 'use strict';
 const { ipcRenderer, contextBridge, webFrame } = require('electron');
 
+// ---------- Alerta de site falso ----------
+// Página do aviso: botão "abrir mesmo assim"
+if (location.protocol === 'file:' && /phish\.html$/i.test(location.pathname)) {
+  try { contextBridge.exposeInMainWorld('aoshiPhish', { allow: url => ipcRenderer.send('phish:allow', String(url || '')) }); } catch (_) {}
+}
+// Página comum que pede senha usando o nome do jogo, fora do endereço oficial: avisa o programa
+const OFFICIAL_RE = /(^|\.)((tribalwars\.(com\.br|net|com\.pt|co\.uk|us|nl|se|ae|asia|works|com\.tr|it|gr|ch|cz|sk|hu|ro|si|hr|ru|pl|de|fr|es|dk|no|fi))|die-staemme\.de|staemme\.ch|plemiona\.pl|guerretribale\.fr|divokekmeny\.cz|divoke-kmene\.sk|klanhaboru\.hu|triburile\.ro|vojnaplemen\.si|plemena\.com|fyletikesmaxes\.gr|tribals\.it|innogames\.(com|de)|innogamescdn\.com)$/i;
+if (/^https?:$/.test(location.protocol) && !OFFICIAL_RE.test(location.hostname.replace(/^www\./i, ''))) {
+  const check = () => {
+    try {
+      if (!document.querySelector('input[type="password"]')) return false;
+      const txt = (document.title + ' ' + (document.body ? document.body.innerText.slice(0, 6000) : '')).toLowerCase();
+      if (/tribal\s*wars|guerras\s*tribais|die\s*st[aä]mme|innogames/.test(txt)) { ipcRenderer.send('phish:suspect', location.href); return true; }
+    } catch (_) {}
+    return false;
+  };
+  window.addEventListener('DOMContentLoaded', () => { if (!check()) setTimeout(check, 2500); }, { once: true });
+}
+
 const isTW = /(^|\.)(tribalwars|die-staemme|staemme|plemiona|guerretribale|divokekmeny|klanhaboru|triburile|vojnaplemen)\./i.test(location.hostname);
 
 if (isTW) {
