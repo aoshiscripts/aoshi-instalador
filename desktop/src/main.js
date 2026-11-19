@@ -322,6 +322,7 @@ async function sessionFor(profileId) {
     prepared.add(part);
     ses.setUserAgent(chromeUA());
     hardenSession(ses, part);
+    await restoreSessionCookies(ses, part);
     await setupExtensions(ses, part, profileId || '');
   }
   const prof = profileOf(profileId);
@@ -1062,12 +1063,54 @@ function setupAutoUpdate() {
 
 let checkTimer = null;
 function restartCheckTimer() { clearInterval(checkTimer); checkTimer = setInterval(() => checkCode(false), Math.max(1, Number(S().checkMin) || CHECK_MIN) * 60000); }
+// ---------- Continuar logado no jogo depois de fechar o programa (como o Opera GX) ----------
+// O login do Tribal Wars usa cookies "de sessão", que o navegador apaga ao fechar. O programa guarda esses
+// cookies (só dos sites do jogo e da InnoGames, cifrados) ao fechar e a cada 2 minutos, e devolve cada um à
+// sessão do mesmo proxy antes da aba abrir. Valem por até 7 dias; com "Limpar dados ao fechar" ligado, não guarda.
+const GAME_COOKIE_HOST = /(^|\.)(tribalwars\.[a-z.]+|die-staemme\.de|staemme\.ch|plemiona\.pl|guerretribale\.fr|divokekmeny\.cz|divoke-kmene\.sk|klanhaboru\.hu|triburile\.ro|vojnaplemen\.si|tribals\.it|fyletikesmaxes\.gr|innogames\.(com|de))$/i;
+let sessCookies = null; // partição → { at, list }
+function sessLoad() { if (sessCookies) return sessCookies; try { sessCookies = store.sessCookies ? JSON.parse(decToken(store.sessCookies)) || {} : {}; } catch (_) { sessCookies = {}; } return sessCookies; }
+async function snapshotSessionCookies() {
+  if (S().clearOnExit) { if (store.sessCookies) { store.sessCookies = ''; sessCookies = {}; save(); } return; }
+  const all = sessLoad();
+  for (const part of prepared) {
+    try {
+      const list = (await session.fromPartition(part).cookies.get({})).filter(c => c.session && GAME_COOKIE_HOST.test(String(c.domain || '').replace(/^\./, '')))
+        .map(c => ({ name: c.name, value: c.value, domain: c.domain, hostOnly: c.hostOnly, path: c.path || '/', secure: !!c.secure, httpOnly: !!c.httpOnly, sameSite: c.sameSite }));
+      if (list.length) all[part] = { at: Date.now(), list }; else if (all[part] && Date.now() - all[part].at > 7 * 86400000) delete all[part];
+    } catch (_) {}
+  }
+  Object.keys(all).forEach(k => { if (Date.now() - (all[k].at || 0) > 7 * 86400000) delete all[k]; });
+  store.sessCookies = encToken(JSON.stringify(all)); save();
+}
+async function restoreSessionCookies(ses, part) {
+  if (S().clearOnExit) return;
+  const saved = sessLoad()[part]; if (!saved || Date.now() - (saved.at || 0) > 7 * 86400000) return;
+  for (const c of saved.list) {
+    try {
+      const host = String(c.domain || '').replace(/^\./, ''); if (!host) continue;
+      const have = await ses.cookies.get({ name: c.name, domain: host });
+      if (have.length) continue; // a sessão já tem um cookie novo com esse nome: não sobrescreve
+      const o = { url: `${c.secure ? 'https' : 'http'}://${host}${c.path || '/'}`, name: c.name, value: c.value, path: c.path || '/', secure: c.secure, httpOnly: c.httpOnly };
+      if (!c.hostOnly) o.domain = c.domain;
+      if (c.sameSite && c.sameSite !== 'unspecified') o.sameSite = c.sameSite;
+      await ses.cookies.set(o);
+    } catch (_) {}
+  }
+}
+setInterval(() => { snapshotSessionCookies().catch(() => {}); }, 2 * 60000);
+let cookiesSaved = false;
+app.on('before-quit', e => {
+  if (cookiesSaved || S().clearOnExit) return;
+  e.preventDefault(); cookiesSaved = true;
+  Promise.race([snapshotSessionCookies(), new Promise(r => setTimeout(r, 2500))]).catch(() => {}).finally(() => { saveNow(); app.quit(); });
+});
 // Limpar dados ao fechar (cookies, cache e armazenamento de todos os perfis)
 let clearing = false;
 app.on('before-quit', e => {
   if (!S().clearOnExit || clearing) return;
   e.preventDefault(); clearing = true;
-  const parts = ['direto'].concat(store.profiles.map(p => p.id));
+  let parts = ['direto']; try { const dir = path.join(app.getPath('userData'), 'Partitions'); if (fs.existsSync(dir)) parts = fs.readdirSync(dir).filter(d => /^aoshi-/.test(d)).map(d => d.replace(/^aoshi-/, '')); } catch (_) {}
   Promise.all(parts.map(p => { const ses = session.fromPartition('persist:aoshi-' + p); return Promise.all([ses.clearStorageData(), ses.clearCache()]).catch(() => {}); })).finally(() => app.quit());
 });
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
