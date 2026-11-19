@@ -18,6 +18,7 @@ function renderTabs() {
   }).join('');
   if ($('#tabs').dataset.html !== tabsHTML) { $('#tabs').innerHTML = tabsHTML; $('#tabs').dataset.html = tabsHTML; }
   const a = active();
+  updateShield(a);
   if (a) {
     if (document.activeElement !== $('#addr')) $('#addr').value = a.url;
     $('#back').disabled = !a.canBack; $('#fwd').disabled = !a.canFwd;
@@ -90,6 +91,78 @@ document.querySelectorAll('.modal').forEach(m => {
   m.addEventListener('click', e => { if (e.target === m || e.target.closest('[data-close]')) show('#' + m.id, false); });
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal:not([hidden])').forEach(m => show('#' + m.id, false)); });
+
+// ---------- Escudo de proteção (ao lado do endereço) ----------
+function updateShield(a) {
+  const el = $('#shield'); if (!el) return;
+  let cls = 'off', tip = 'Sem proteção: aba sem proxy — os sites veem o seu IP real.';
+  if (a && a.profileId) {
+    if (a.guard === 'ok') { cls = 'ok'; tip = `Protegido: os sites veem o IP do proxy${a.guardIp ? ' (' + a.guardIp + ')' : ''}, não o seu.`; }
+    else if (a.guard === 'down') tip = 'Sem proteção: o proxy falhou e a aba está bloqueada (nada sai por ela).';
+    else { cls = 'wait'; tip = 'Conferindo o proxy desta aba…'; }
+  }
+  if (el.className !== 'shield ' + cls) el.className = 'shield ' + cls;
+  el.title = tip;
+}
+
+// ---------- Scripts de usuário ----------
+let usData = [], usPendingId = '';
+function renderScripts() {
+  $('#scripts-n').textContent = usData.length ? String(usData.length) : '';
+  const box = $('#us-list'); if (!box) return;
+  box.innerHTML = usData.length ? usData.map(x => `<div class="usr${x.enabled ? '' : ' off'}" data-id="${esc(x.id)}">
+      <label class="sw" title="${x.enabled ? 'Ligado' : 'Desligado'}"><input type="checkbox" data-us-toggle${x.enabled ? ' checked' : ''}><span></span></label>
+      <span class="ic none">JS</span>
+      <span><span class="nm">${esc(x.name)}</span>${x.version ? `<span class="vt">v${esc(x.version)}</span>` : ''}<small>${esc(x.enabled ? (x.where.join(' · ') || 'sem páginas definidas') : 'desligado')}${x.description ? ' — ' + esc(x.description) : ''}</small></span>
+      ${x.canUpdate ? '<button class="ghost sm" data-us-update>Atualizar</button>' : '<span></span>'}
+      <button class="ghost sm" data-us-edit>Editar</button>
+      <button class="ghost sm" data-us-del>Apagar</button>
+    </div>`).join('') : '<div class="hint">Nenhum script instalado ainda. Cole um link .user.js acima ou abra o link numa aba.</div>';
+}
+async function usStart(src) {
+  $('#us-stat').textContent = 'Lendo o script…';
+  try {
+    const r = await aoshi.usPrepare(src);
+    usPendingId = r.pendingId;
+    const m = r.meta;
+    $('#usc-title').textContent = r.existing ? `Atualizar ${m.name}` : `Instalar ${m.name}`;
+    $('#usc-ok').textContent = r.existing ? 'Atualizar' : 'Instalar';
+    $('#usc-body').innerHTML = `<div><b>${esc(m.name)}</b>${m.version ? ` <span class="vt">v${esc(m.version)}</span>` : ''}${r.existing ? ` <span class="k">(instalada: v${esc(r.existing.version || '?')})</span>` : ''}</div>
+      ${m.description ? `<div>${esc(m.description)}</div>` : ''}
+      <div class="k">Roda em</div><div>${m.where.length ? m.where.map(w => `<code>${esc(w)}</code>`).join('<br>') : '<i>nenhuma página (não vai rodar)</i>'}</div>
+      ${m.grant.length ? `<div class="k">Permissões</div><div><code>${esc(m.grant.join(', '))}</code></div>` : ''}
+      ${m.requires ? `<div class="k">Bibliotecas incluídas</div><div>${m.requires}</div>` : ''}
+      <div class="k">Origem</div><div><code>${esc(r.source)}</code></div>
+      <div class="k">Só instale scripts de quem você confia: eles rodam nas páginas com acesso ao jogo.</div>`;
+    $('#us-stat').textContent = '';
+    show('#m-us-confirm', true);
+  } catch (e) { $('#us-stat').textContent = 'Não deu para instalar: ' + String(e && e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+}
+const usErr = e => String(e && e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+async function openScripts() { usData = await aoshi.usList(); renderScripts(); $('#us-stat').textContent = ''; show('#m-scripts', true); }
+function openUsInstall(url) { openScripts().then(() => { $('#us-src').value = url || ''; if (url) usStart(url); }); }
+$('#btn-scripts').onclick = openScripts;
+$('#us-install').onclick = () => { const v = $('#us-src').value.trim(); if (!v) { $('#us-stat').textContent = 'Cole o link do script (.user.js) ou o código.'; return; } usStart(v); };
+$('#us-src').addEventListener('keydown', e => { if (e.key === 'Enter') $('#us-install').click(); });
+$('#usc-ok').onclick = async () => {
+  try { const r = await aoshi.usCommit(usPendingId); show('#m-us-confirm', false); $('#us-src').value = ''; $('#us-stat').textContent = `${r.name} ${r.updated ? 'atualizado' : 'instalado'}${r.version ? ' (v' + r.version + ')' : ''}. Vale a partir do próximo carregamento das páginas.`; notice(`${r.name} ${r.updated ? 'atualizado' : 'instalado'}.`, { label: 'Recarregar abas', run: () => aoshi.reloadAll() }); }
+  catch (e) { show('#m-us-confirm', false); $('#us-stat').textContent = 'Não deu para instalar: ' + usErr(e); }
+};
+$('#us-reload').onclick = () => { aoshi.reloadAll(); $('#us-stat').textContent = 'Abas recarregadas.'; };
+let usEditId = '';
+$('#us-list').addEventListener('change', async e => { const row = e.target.closest('.usr'); if (row && e.target.matches('[data-us-toggle]')) { usData = await aoshi.usToggle(row.dataset.id, e.target.checked); renderScripts(); $('#us-stat').textContent = 'Vale a partir do próximo carregamento das páginas.'; } });
+$('#us-list').addEventListener('click', async e => {
+  const row = e.target.closest('.usr'); if (!row) return; const id = row.dataset.id, x = usData.find(y => y.id === id);
+  if (e.target.closest('[data-us-update]')) { $('#us-stat').textContent = `Atualizando ${x ? x.name : ''}…`; try { const r = await aoshi.usUpdate(id); $('#us-stat').textContent = r.from === r.to ? `${r.name} já está na versão mais nova (v${r.to}).` : `${r.name}: v${r.from || '?'} → v${r.to}.`; } catch (err) { $('#us-stat').textContent = 'Não deu para atualizar: ' + usErr(err); } }
+  else if (e.target.closest('[data-us-edit]')) { usEditId = id; $('#use-title').textContent = `Editar ${x ? x.name : 'script'}`; $('#use-code').value = await aoshi.usCode(id); $('#use-stat').textContent = ''; show('#m-us-edit', true); }
+  else if (e.target.closest('[data-us-del]')) {
+    const b = e.target.closest('[data-us-del]');
+    if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar'; setTimeout(() => { if (b.isConnected) { b.dataset.confirm = ''; b.textContent = 'Apagar'; } }, 3000); return; }
+    usData = await aoshi.usRemove(id); renderScripts(); $('#us-stat').textContent = `${x ? x.name : 'Script'} apagado (e os dados dele).`;
+  }
+});
+$('#use-save').onclick = async () => { try { const r = await aoshi.usSaveCode(usEditId, $('#use-code').value); show('#m-us-edit', false); $('#us-stat').textContent = `${r.name} salvo. Vale a partir do próximo carregamento das páginas.`; } catch (e) { $('#use-stat').textContent = 'Não salvou: ' + usErr(e); } };
+aoshi.usList().then(l => { usData = l || []; renderScripts(); }).catch(() => {});
 
 // ---------- Abas vinculadas (proxy ↔ aba) ----------
 const tabLabel = l => (l && l.name) || (l && l.open && ((state.tabs || []).find(x => x.id === l.open) || {}).title) || hostOf(l && l.url) || 'aba sem nome';
@@ -497,6 +570,8 @@ $('#btn-update').onclick = async () => { const msg = await aoshi.checkCode(); no
 aoshi.on((ch, d) => {
   if (ch === 'tabs') { state = d; renderTabs(); updateLinksBtn(); if (!$('#m-links').hidden) renderLinks(); if (!$('#m-pick').hidden) renderPick(); }
   else if (ch === 'notice') notice(d.text || '');
+  else if (ch === 'scripts') { usData = d.list || []; renderScripts(); }
+  else if (ch === 'us-install') openUsInstall(d.url);
   else if (ch === 'profiles') {
     profiles = d.profiles || []; renderTabs();
     // 1.4.7: o teste antigo dava 407 falso em proxy HTTP com senha → testa de novo esses, uma vez

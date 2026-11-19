@@ -179,6 +179,8 @@ function hardenSession(ses, part) {
         return cb({ cancel: true });
       }
     }
+    // link de script de usuário (.user.js) aberto numa aba: instala pelo gerenciador em vez de mostrar o código
+    if (d.resourceType === 'mainFrame') { try { if (/\.user\.js$/i.test(new URL(d.url).pathname)) { cb({ cancel: true }); usOpenInstall(d.url); return; } } catch (_) {} }
     try { const h = new URL(d.url).hostname; if (S().blockTrackers && TRACKERS.test(h) && d.resourceType !== 'mainFrame') return cb({ cancel: true }); } catch (_) {}
     cb({});
   });
@@ -804,6 +806,167 @@ app.on('login', (event, wc, details, authInfo, callback) => {
   if (!creds && wc) { const t = tabs.find(x => x.view.webContents === wc); const p = t && profileOf(t.profileId); creds = p && p.proxy; }
   if (!creds && details && details.url) { /* pedidos sem aba (ex.: favicon): usa o primeiro perfil com esse host */ const p = store.profiles.find(x => x.proxy && authInfo.host === x.proxy.host && Number(authInfo.port) === Number(x.proxy.port)) || store.profiles.find(x => x.proxy && authInfo.host === x.proxy.host); creds = p && p.proxy; }
   if (creds && creds.user) { event.preventDefault(); callback(creds.user, creds.pass || ''); }
+});
+
+// ---------- Scripts de usuário (no lugar do Tampermonkey) ----------
+// Os scripts ficam em scripts.json; os dados que cada script salva (GM_setValue) ficam separados por proxy
+// (partição da aba) em script-valores.json. Rodam no mundo da página, chamados pelo preload no começo da página.
+const US_FILE = () => path.join(app.getPath('userData'), 'scripts.json');
+const USV_FILE = () => path.join(app.getPath('userData'), 'script-valores.json');
+let usList = null, usVals = null, usValsT = null;
+const usLoad = () => { if (!usList) { try { usList = JSON.parse(fs.readFileSync(US_FILE(), 'utf8')); } catch (_) { usList = []; } if (!Array.isArray(usList)) usList = []; } return usList; };
+const usSave = () => { try { fs.writeFileSync(US_FILE(), JSON.stringify(usLoad())); } catch (_) {} };
+const usValsLoad = () => { if (!usVals) { try { usVals = JSON.parse(fs.readFileSync(USV_FILE(), 'utf8')); } catch (_) { usVals = {}; } } return usVals; };
+const usValsSave = () => { clearTimeout(usValsT); usValsT = setTimeout(() => { try { fs.writeFileSync(USV_FILE(), JSON.stringify(usValsLoad())); } catch (_) {} }, 400); };
+function usParse(code) {
+  const m = String(code).match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/);
+  if (!m) throw new Error('não é um script de usuário (falta o bloco ==UserScript==)');
+  const meta = { name: '', namespace: '', version: '', description: '', match: [], include: [], exclude: [], excludeMatch: [], runAt: 'document-idle', grant: [], require: [], resource: {}, updateURL: '', downloadURL: '', icon: '', noframes: false };
+  m[1].split('\n').forEach(line => {
+    const k = line.match(/^\s*\/\/\s*@([\w:-]+)(?:\s+(.*?))?\s*$/); if (!k) return;
+    const key = k[1].toLowerCase(), val = (k[2] || '').trim();
+    if (key === 'name' && !meta.name) meta.name = val; else if (key === 'namespace') meta.namespace = val; else if (key === 'version') meta.version = val;
+    else if (key === 'description' && !meta.description) meta.description = val; else if (key === 'match') meta.match.push(val); else if (key === 'include') meta.include.push(val);
+    else if (key === 'exclude') meta.exclude.push(val); else if (key === 'exclude-match') meta.excludeMatch.push(val); else if (key === 'run-at') meta.runAt = val || 'document-idle';
+    else if (key === 'grant') meta.grant.push(val); else if (key === 'require') meta.require.push(val); else if (key === 'updateurl') meta.updateURL = val; else if (key === 'downloadurl') meta.downloadURL = val;
+    else if (key === 'icon' || key === 'iconurl') meta.icon = val; else if (key === 'noframes') meta.noframes = true;
+    else if (key === 'resource') { const r = val.match(/^(\S+)\s+(\S+)$/); if (r) meta.resource[r[1]] = r[2]; }
+  });
+  if (!meta.name) throw new Error('o script não tem @name');
+  return meta;
+}
+// @match (padrão do Chrome) e @include/@exclude (curinga * ou /regex/)
+function usPat(p) {
+  if (p === '<all_urls>' || p === '*') return /^(https?|file|ftp):\/\//;
+  const m = p.match(/^(\*|https?|file|ftp):\/\/(\*|\*\.[^/*]+|[^/*]+)?(\/.*)$/);
+  if (!m) return null;
+  const esc = x => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const scheme = m[1] === '*' ? 'https?' : m[1];
+  const host = !m[2] || m[2] === '*' ? '[^/]*' : m[2].startsWith('*.') ? '(?:[^/]*\\.)?' + esc(m[2].slice(2)) : esc(m[2]);
+  return new RegExp('^' + scheme + ':\\/\\/' + host + esc(m[3]).replace(/\\\*/g, '.*').replace(/\*/g, '.*') + '$');
+}
+function usGlob(g) {
+  if (/^\/.*\/[a-z]*$/i.test(g)) { try { const i = g.lastIndexOf('/'); return new RegExp(g.slice(1, i), g.slice(i + 1)); } catch (_) { return null; } }
+  if (g === '*') return /.*/;
+  return new RegExp('^' + g.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$', 'i');
+}
+function usMatches(sc, url) {
+  const t = (list, fn) => list.some(x => { const r = fn(x); return r && r.test(url); });
+  if (t(sc.meta.exclude, usGlob) || t(sc.meta.excludeMatch, usPat)) return false;
+  if (!sc.meta.match.length && !sc.meta.include.length) return false;
+  return t(sc.meta.match, usPat) || t(sc.meta.include, usGlob);
+}
+async function usFetchText(url) {
+  const r = await session.defaultSession.fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`não baixou ${url} (HTTP ${r.status})`);
+  return await r.text();
+}
+const usPending = new Map();
+// baixa (ou recebe o código), lê o cabeçalho e os @require/@resource; guarda à espera da confirmação
+async function usPrepare(src) {
+  src = String(src || '').trim(); if (!src) throw new Error('cole o link ou o código do script');
+  const isUrl = /^https?:\/\//i.test(src);
+  const code = isUrl ? await usFetchText(src) : src;
+  const meta = usParse(code);
+  const requires = {};
+  for (const u of meta.require) { try { requires[u] = await usFetchText(new URL(u, isUrl ? src : undefined).href); } catch (e) { throw new Error(`@require falhou: ${e.message}`); } }
+  const resources = {};
+  for (const [n, u] of Object.entries(meta.resource)) {
+    try { const r = await session.defaultSession.fetch(new URL(u, isUrl ? src : undefined).href); const buf = Buffer.from(await r.arrayBuffer()); resources[n] = { type: r.headers.get('content-type') || 'application/octet-stream', b64: buf.toString('base64') }; } catch (_) {}
+  }
+  const id = crypto.randomUUID();
+  const existing = usLoad().find(x => x.meta.name === meta.name && x.meta.namespace === meta.namespace) || null;
+  usPending.set(id, { code, meta, requires, resources, url: isUrl ? src : (existing && existing.url) || '' });
+  setTimeout(() => usPending.delete(id), 30 * 60000);
+  return { pendingId: id, meta: usPublicMeta(meta), source: isUrl ? src : 'código colado', existing: existing ? { id: existing.id, version: existing.meta.version } : null };
+}
+const usPublicMeta = m => ({ name: m.name, version: m.version, description: m.description, where: m.match.concat(m.include).slice(0, 12), grant: m.grant, runAt: m.runAt, requires: m.require.length, icon: m.icon });
+function usCommit(pendingId) {
+  const p = usPending.get(pendingId); if (!p) throw new Error('o pedido de instalação expirou, tente de novo');
+  usPending.delete(pendingId);
+  const list = usLoad();
+  const old = list.find(x => x.meta.name === p.meta.name && x.meta.namespace === p.meta.namespace);
+  const sc = { id: old ? old.id : crypto.randomUUID(), meta: p.meta, code: p.code, requires: p.requires, resources: p.resources, url: p.meta.downloadURL || p.url || (old && old.url) || '', updateURL: p.meta.updateURL || p.meta.downloadURL || p.url || '', enabled: old ? old.enabled : true, installedAt: old ? old.installedAt : Date.now(), updatedAt: Date.now() };
+  if (old) list[list.indexOf(old)] = sc; else list.push(sc);
+  usSave(); usPush();
+  return { id: sc.id, name: sc.meta.name, version: sc.meta.version, updated: !!old };
+}
+const usInfo = () => usLoad().map(x => ({ id: x.id, name: x.meta.name, version: x.meta.version, description: x.meta.description, where: x.meta.match.concat(x.meta.include).slice(0, 3), enabled: !!x.enabled, updatedAt: x.updatedAt, canUpdate: !!(x.updateURL || x.url), icon: x.meta.icon }));
+const usPush = () => ui('scripts', { list: usInfo() });
+function usOpenInstall(url) { if (!win || win.isDestroyed()) return; ui('us-install', { url }); }
+// tokens por script e por página: só o código injetado conhece o seu (a página não consegue chamar a ponte sozinha)
+const usTokens = new Map();
+function usPartOf(wc) { const t = tabs.find(x => alive(x) && x.view.webContents === wc); return 'persist:aoshi-' + ((t && t.profileId) || 'direto'); }
+ipcMain.on('us:match', (e, url) => {
+  try {
+    const list = usLoad().filter(x => x.enabled && usMatches(x, String(url || '')));
+    if (!list.length) { e.returnValue = []; return; }
+    const part = usPartOf(e.sender), vals = usValsLoad();
+    for (const [k, v] of usTokens) if (v.wcId === e.sender.id) usTokens.delete(k);
+    e.returnValue = list.map(x => {
+      const token = crypto.randomBytes(18).toString('hex');
+      usTokens.set(token, { id: x.id, part, wcId: e.sender.id });
+      return { token, runAt: x.meta.runAt, name: x.meta.name, version: x.meta.version, namespace: x.meta.namespace, description: x.meta.description, code: x.code, requires: x.meta.require.map(u => (x.requires || {})[u] || ''), values: ((vals[x.id] || {})[part]) || {}, resources: Object.fromEntries(Object.entries(x.resources || {}).map(([n, r]) => [n, 'data:' + r.type + ';base64,' + r.b64])) };
+    });
+  } catch (err) { console.warn('[scripts]', err); e.returnValue = []; }
+});
+ipcMain.handle('us:call', async (e, token, op, a) => {
+  const tk = usTokens.get(token);
+  if (!tk || tk.wcId !== e.sender.id) throw new Error('ponte recusada');
+  a = a || {};
+  if (op === 'set' || op === 'del') {
+    const vals = usValsLoad(); vals[tk.id] = vals[tk.id] || {}; const box = (vals[tk.id][tk.part] = vals[tk.id][tk.part] || {});
+    if (op === 'set') box[a.k] = a.v; else delete box[a.k];
+    usValsSave(); return true;
+  }
+  if (op === 'xhr') {
+    const ses = session.fromPartition(tk.part);
+    const ctl = new AbortController(); const ms = Number(a.timeout) > 0 ? Number(a.timeout) : 120000;
+    const timer = setTimeout(() => ctl.abort(), ms);
+    try {
+      const init = { method: String(a.method || 'GET').toUpperCase(), headers: a.headers || {}, signal: ctl.signal, redirect: 'follow', credentials: a.anonymous ? 'omit' : 'include' };
+      if (a.data != null && !/^(GET|HEAD)$/.test(init.method)) init.body = String(a.data);
+      const r = await ses.fetch(a.url, init);
+      const headers = [...r.headers].map(([k, v]) => `${k}: ${v}`).join('\r\n');
+      const bin = a.responseType === 'arraybuffer' || a.responseType === 'blob';
+      const buf = Buffer.from(await r.arrayBuffer());
+      return { status: r.status, statusText: r.statusText, headers, finalUrl: r.url || a.url, ctype: r.headers.get('content-type') || '', text: bin ? '' : buf.toString('utf8'), b64: bin ? buf.toString('base64') : '' };
+    } catch (err) { return { error: String(err && err.message || err), timeout: ctl.signal.aborted }; }
+    finally { clearTimeout(timer); }
+  }
+  if (op === 'clip') { require('electron').clipboard.writeText(String(a.text || '')); return true; }
+  if (op === 'notify') { try { const { Notification } = require('electron'); new Notification({ title: String(a.title || 'Aoshi Pro'), body: String(a.text || '') }).show(); } catch (_) {} return true; }
+  if (op === 'open') {
+    const t = tabs.find(x => alive(x) && x.view.webContents === e.sender);
+    if (!/^https?:/i.test(String(a.url || ''))) return false;
+    // aba com proxy: o proxy fica numa aba só, então abre na própria aba; sem proxy, abre outra aba
+    if (t && t.profileId) { if (!a.background) e.sender.loadURL(a.url); return true; }
+    await newTab('', a.url, !a.background); return true;
+  }
+  if (op === 'download') { try { e.sender.downloadURL(String(a.url || '')); } catch (_) {} return true; }
+  return false;
+});
+ipcMain.handle('us:list', () => usInfo());
+ipcMain.handle('us:prepare', (_, src) => usPrepare(src));
+ipcMain.handle('us:commit', (_, id) => usCommit(id));
+ipcMain.handle('us:toggle', (_, id, on) => { const x = usLoad().find(y => y.id === id); if (x) { x.enabled = !!on; usSave(); usPush(); } return usInfo(); });
+ipcMain.handle('us:remove', (_, id) => { usList = usLoad().filter(y => y.id !== id); usSave(); const v = usValsLoad(); delete v[id]; usValsSave(); usPush(); return usInfo(); });
+ipcMain.handle('us:code', (_, id) => { const x = usLoad().find(y => y.id === id); return x ? x.code : ''; });
+ipcMain.handle('us:save-code', async (_, id, code) => {
+  const x = usLoad().find(y => y.id === id); if (!x) throw new Error('script não encontrado');
+  const meta = usParse(code);
+  const requires = {};
+  for (const u of meta.require) requires[u] = (x.requires || {})[u] != null ? x.requires[u] : await usFetchText(new URL(u, x.url || undefined).href);
+  Object.assign(x, { meta, code, requires, updatedAt: Date.now() }); usSave(); usPush();
+  return { name: meta.name, version: meta.version };
+});
+ipcMain.handle('us:update', async (_, id) => {
+  const x = usLoad().find(y => y.id === id); if (!x) throw new Error('script não encontrado');
+  const url = x.meta.downloadURL || x.url || x.updateURL; if (!url) throw new Error('este script não tem link de atualização');
+  const before = x.meta.version;
+  const p = await usPrepare(url);
+  const r = usCommit(p.pendingId);
+  return { name: r.name, from: before, to: r.version };
 });
 
 // ---------- Atualização do programa ----------

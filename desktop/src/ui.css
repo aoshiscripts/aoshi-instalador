@@ -271,3 +271,32 @@ body.tab-compact .tab { min-width:90px; max-width:160px; height:30px; }
 .pick .n { white-space:nowrap; flex:none; }
 .pick .ltag { margin-left:0; overflow:hidden; text-overflow:ellipsis; max-width:320px; flex:0 1 auto; }
 .pick .m { white-space:nowrap; }
+
+/* escudo de proteção ao lado do endereço */
+@keyframes shGlow { 0%,100% { opacity:1; filter:drop-shadow(0 0 4px rgb(34 197 94 / .9)); } 50% { opacity:.5; filter:drop-shadow(0 0 1px rgb(34 197 94 / .25)); } }
+#shield { display:flex; align-items:center; justify-content:center; width:26px; height:26px; flex:none; cursor:default; }
+#shield .sh-body { stroke:#ef4444; fill:rgb(239 68 68 / .12); }
+#shield .sh-ok { stroke:#22c55e; display:none; }
+#shield .sh-cut { stroke:#ef4444; }
+#shield.ok .sh-body { stroke:#22c55e; fill:rgb(34 197 94 / .12); }
+#shield.ok .sh-ok { display:inline; }
+#shield.ok .sh-cut { display:none; }
+#shield.ok svg { animation:shGlow 2.6s ease-in-out infinite; }
+#shield.wait .sh-body { stroke:#a1a1aa; fill:transparent; }
+#shield.wait .sh-cut { display:none; }
+/* scripts de usuário */
+#scripts-n { font-size:11px; color:var(--meta, #a1a1aa); }
+#btn-scripts svg { margin-right:4px; vertical-align:-2px; }
+#us-src { flex:1; }
+.us-list { display:flex; flex-direction:column; gap:6px; max-height:56vh; overflow:auto; }
+.usr { display:grid; grid-template-columns:36px 22px minmax(0,1fr) auto auto auto; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--line); border-radius:10px; }
+.usr.off { opacity:.6; }
+.usr .ic { width:20px; height:20px; border-radius:4px; object-fit:contain; }
+.usr .ic.none { display:flex; align-items:center; justify-content:center; background:#27272a; color:#a1a1aa; font-size:11px; }
+.usr .nm { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.vt { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:999px; font-size:10.5px; font-weight:600; background:rgb(124 58 237 / .18); color:#c4b5fd; }
+.usr small { display:block; color:var(--meta, #a1a1aa); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.usc-body { display:flex; flex-direction:column; gap:6px; font-size:13px; }
+.usc-body .k { color:var(--meta, #a1a1aa); font-size:11.5px; }
+.usc-body code { font-size:11.5px; word-break:break-all; }
+#use-code { width:100%; min-height:52vh; box-sizing:border-box; font:12px/1.5 Consolas, ui-monospace, monospace; background:#0b0b0f; color:#e4e4e7; border:1px solid var(--line); border-radius:8px; padding:10px; resize:vertical; }

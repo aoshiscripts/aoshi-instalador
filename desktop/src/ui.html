@@ -15,6 +15,7 @@
     <button id="btn-links" class="ghost" title="Abas vinculadas: cada proxy com a sua aba (abre de novo as que você fechou)">🔗 Abas vinculadas <span id="links-n"></span></button>
     <button id="btn-profiles" class="ghost" title="Perfis de proxy">Proxies</button>
     <button id="btn-update" class="ghost" title="Conferir se tem versão nova do Aoshi Pro">Aoshi Pro <span id="code-ver"></span></button>
+    <button id="btn-scripts" class="ghost" title="Scripts de usuário: instalar, ligar, desligar e atualizar (no lugar do Tampermonkey)"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>Scripts <span id="scripts-n"></span></button>
     <button id="btn-settings" class="icon" title="Configurações">⚙</button>
   </div>
   <div id="navbar">
@@ -23,6 +24,7 @@
     <button class="icon" id="reload" title="Recarregar (F5)">⟳</button>
     <button class="icon" id="home" title="Página inicial">⌂</button>
     <div id="proxy-chip" title="Proxy desta aba — clique para trocar"><span class="dot"></span><span id="proxy-name">Sem proxy</span><span class="caret">▾</span></div>
+    <span id="shield" class="shield off" title=""><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path class="sh-body" d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path class="sh-ok" d="M8.5 12.2l2.4 2.4 4.6-4.8"/><path class="sh-cut" d="M5 19L19 5"/></svg></span>
     <input id="addr" spellcheck="false" autocomplete="off">
     <button id="zoom-chip" class="ghost" hidden title="Zoom desta aba — clique para voltar ao padrão (Ctrl+0)"></button>
     <div id="findbar" hidden><input id="find-q" placeholder="Buscar na página" spellcheck="false"><span id="find-n"></span><button class="icon" id="find-prev" title="Anterior (Shift+Enter)">‹</button><button class="icon" id="find-next" title="Próximo (Enter)">›</button><button class="icon" id="find-x" title="Fechar (Esc)">✕</button></div>
@@ -40,6 +42,33 @@
       <input id="links-q" placeholder="Filtrar por nome da aba, proxy, país…" spellcheck="false">
       <div id="links-list" class="links-list"></div>
       <div class="actions"><button class="ghost" data-close>Fechar</button></div>
+    </div>
+  </div>
+
+  <!-- Scripts de usuário -->
+  <div class="modal" id="m-scripts" hidden>
+    <div class="card wide">
+      <h3>Scripts de usuário</h3>
+      <div class="hint">Rodam em todas as abas, cada uma pelo próprio proxy. Os dados de cada script ficam separados por proxy. Também dá para abrir um link <b>.user.js</b> numa aba: o programa instala por aqui.</div>
+      <div class="row"><input id="us-src" placeholder="Cole o link do script (.user.js) ou o código inteiro" spellcheck="false"><button id="us-install">Instalar</button></div>
+      <div id="us-stat" class="hint"></div>
+      <div id="us-list" class="us-list"></div>
+      <div class="actions"><button class="ghost" id="us-reload" title="Os scripts novos ou alterados valem a partir do próximo carregamento da página">Recarregar abas</button><button class="ghost" data-close>Fechar</button></div>
+    </div>
+  </div>
+  <div class="modal" id="m-us-confirm" hidden>
+    <div class="card">
+      <h3 id="usc-title">Instalar script</h3>
+      <div id="usc-body" class="usc-body"></div>
+      <div class="actions"><button class="ghost" data-close>Cancelar</button><button id="usc-ok">Instalar</button></div>
+    </div>
+  </div>
+  <div class="modal" id="m-us-edit" hidden>
+    <div class="card wide">
+      <h3 id="use-title">Editar script</h3>
+      <textarea id="use-code" spellcheck="false"></textarea>
+      <div id="use-stat" class="hint"></div>
+      <div class="actions"><button class="ghost" data-close>Cancelar</button><button id="use-save">Salvar</button></div>
     </div>
   </div>
 
