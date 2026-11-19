@@ -381,25 +381,50 @@ ipcMain.handle('profiles:test', async (_, p) => {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
     try { return await ses.fetch(url, Object.assign({ cache: 'no-store', signal: ctl.signal }, opt || {})); } finally { clearTimeout(timer); }
   };
+  const t0 = Date.now();
   try {
-    let geo = null, lastErr = null;
+    let geo = null, errs = [];
+    // vários sites de verificação (um em http, que passa mesmo em plano de proxy sem HTTPS); só para no erro de senha
+    // vários sites de verificação; o de http fica por último (nas consultas http o programa não entrega a senha
+    // sozinho, então um 407 ali não quer dizer senha errada)
     for (const src of [
       ['https://ipwho.is/?fields=success,ip,country,country_code', j => j.success !== false && j.ip ? { ip: j.ip, cc: j.country_code, name: j.country } : null],
+      ['https://api.ipify.org?format=json', j => j.ip ? { ip: j.ip } : null],
       ['https://ipapi.co/json/', j => j.ip ? { ip: j.ip, cc: j.country_code, name: j.country_name } : null],
-      ['https://api.ipify.org?format=json', j => j.ip ? { ip: j.ip } : null]
+      ['http://ip-api.com/json/?fields=status,country,countryCode,query', j => j.status === 'success' && j.query ? { ip: j.query, cc: j.countryCode, name: j.country } : null]
     ]) {
-      try { geo = src[1](await (await get(src[0], 12000)).json()); if (geo) break; } catch (e) { lastErr = e; if (/ERR_(PROXY|TUNNEL|NO_SUPPORTED_PROXIES)|407|aborted/i.test(String(e && e.message))) break; }
+      if (Date.now() - t0 > 45000) break;
+      try {
+        const r = await get(src[0], 20000);
+        if (r.status === 407) { errs.push(src[0].startsWith('https') ? '407' : 'http 407'); continue; }
+        geo = src[1](await r.json()); if (geo) break;
+        errs.push('resposta sem IP (' + r.status + ')');
+      } catch (e) { errs.push(String(e && e.message || e)); }
     }
-    if (!geo) throw lastErr || new Error('sem resposta');
+    if (!geo) throw new Error(errs.join(' | ') || 'sem resposta');
     // latência: ida e volta até o Tribal Wars por este proxy (melhor de 2)
     let best = Infinity;
-    for (let i = 0; i < 2; i++) { const t0 = performance.now(); try { await get('https://www.tribalwars.com.br/favicon.ico', 8000, { method: 'HEAD' }); best = Math.min(best, performance.now() - t0); } catch (_) {} }
+    for (let i = 0; i < 2; i++) { const s0 = performance.now(); try { await get('https://www.tribalwars.com.br/favicon.ico', 10000, { method: 'HEAD' }); best = Math.min(best, performance.now() - s0); } catch (_) {} }
     return { ok: true, ip: geo.ip, country: String(geo.cc || '').toLowerCase(), countryName: geo.name || '', latency: Number.isFinite(best) ? Math.round(best) : null };
   } catch (e) {
-    const m = String(e && e.message || 'sem resposta');
-    return { ok: false, message: /aborted/i.test(m) ? 'não respondeu em 12 s' : /407/.test(m) ? 'usuário ou senha recusados' : m.replace(/^net::/, '') };
+    return { ok: false, message: proxyError(String(e && e.message || 'sem resposta')) };
   } finally { testCreds.delete(key); }
 });
+// erro do Chromium → explicação em português
+function proxyError(m) {
+  const map = [
+    [/(^|[^p] )407|PROXY_AUTH|^407/i, 'o proxy recusou o usuário ou a senha'],
+    [/PROXY_CONNECTION_FAILED|CONNECTION_REFUSED/i, 'não conectou no proxy (endereço ou porta errados, ou proxy fora do ar)'],
+    [/NAME_NOT_RESOLVED|PROXY_.*RESOLV/i, 'o endereço do proxy não existe (confira o nome)'],
+    [/TUNNEL_CONNECTION_FAILED/i, 'o proxy recusou abrir a conexão (talvez o tipo esteja errado: troque HTTP/SOCKS5)'],
+    [/SOCKS/i, 'falha no SOCKS (talvez o tipo esteja errado: troque HTTP/SOCKS5)'],
+    [/aborted|TIMED_OUT/i, 'o proxy demorou demais para responder'],
+    [/EMPTY_RESPONSE|CONNECTION_(RESET|CLOSED)/i, 'o proxy fechou a conexão sem responder (tipo errado ou plano sem esse acesso)'],
+    [/CERT|SSL/i, 'erro de certificado pelo proxy']
+  ];
+  const hit = map.find(([re]) => re.test(m));
+  return hit ? `${hit[1]} — ${m.replace(/net::/g, '').slice(0, 120)}` : m.replace(/net::/g, '').slice(0, 160);
+}
 ipcMain.handle('token:set', async (_, token) => {
   token = String(token || '').trim();
   const r = await fetchCode(token, '');

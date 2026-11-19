@@ -110,7 +110,7 @@ textarea:focus { border-color:var(--acc2); }
 button.sm { padding:3px 8px; font-size:11px; }
 .px-list { display:flex; flex-direction:column; min-height:120px; max-height:46vh; overflow:auto; border:1px solid var(--line); border-radius:9px; }
 .px-list .empty { padding:18px; text-align:center; }
-.pxr { display:grid; grid-template-columns:34px 26px minmax(90px,1fr) minmax(150px,1.6fr) minmax(90px,1fr) minmax(70px,.8fr) 78px auto auto; gap:8px; align-items:center; padding:5px 9px; border-bottom:1px solid var(--line); }
+.pxr { display:grid; grid-template-columns:34px 26px minmax(90px,1fr) minmax(150px,1.6fr) minmax(90px,1fr) minmax(70px,.8fr) 78px auto auto auto; gap:8px; align-items:center; padding:5px 9px; border-bottom:1px solid var(--line); }
 .pxr:last-child { border-bottom:0; }
 .pxr.head { position:sticky; top:0; z-index:1; background:var(--bar); color:var(--meta); font-size:11px; font-weight:600; }
 .pxr:not(.head):hover { background:#1c1c23; }
@@ -239,3 +239,4 @@ body.tab-compact .tab { min-width:90px; max-width:160px; height:30px; }
 .tab.named .t { font-weight:700; color:#fff; }
 .tab.named { box-shadow:inset 0 2px 0 var(--acc2); }
 .tab .tab-edit { flex:1; min-width:0; height:22px; padding:0 6px; font-weight:600; border-color:var(--acc2); }
+.pxr .pxerr { grid-column:3 / -1; color:#fca5a5; font-size:11px; margin-top:-2px; }

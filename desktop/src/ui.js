@@ -205,11 +205,12 @@ const rowHTML = (p, i) => `<div class="pxr${p.status === 'bad' ? ' is-bad' : ''}
   <span class="usr">${p.proxy.user ? esc(p.proxy.user) : '<i>sem login</i>'}</span>
   <span class="cty" title="${esc(p.ip ? 'IP visto pelos sites: ' + p.ip : '')}">${esc(countryPT(p))}</span>
   ${latOf(p)}
-  <button class="ghost sm" data-test title="Testar de novo">Testar</button><button class="ghost sm" data-del title="Excluir">✕</button></div>`;
+  <button class="ghost sm" data-test title="Testar de novo">Testar</button><button class="ghost sm" data-open title="Abre uma aba com este proxy numa página que mostra o IP e o país">Abrir</button><button class="ghost sm" data-del title="Excluir">✕</button>
+  ${p.status === 'bad' && p.error ? `<div class="pxerr">${esc(p.error)}</div>` : ''}</div>`;
 function renderProfiles() {
   const q = ($('#px-q').value || '').trim().toLowerCase();
   const list = profiles.map((p, i) => [p, i]).filter(([p, i]) => !q || `${i + 1} ${p.name} ${p.proxy.host}:${p.proxy.port} ${p.proxy.user} ${p.countryName} ${countryPT(p)} ${p.country} ${p.ip}`.toLowerCase().includes(q));
-  $('#prof-list').innerHTML = profiles.length ? `<div class="pxr head"><span>#</span><span></span><span>Nome</span><span>Endereço</span><span>Usuário</span><span>País</span><span>Latência</span><span></span><span></span></div>` + list.map(([p, i]) => rowHTML(p, i)).join('') : '<div class="hint empty">Nenhum proxy ainda. Cole uma lista acima ou adicione um.</div>';
+  $('#prof-list').innerHTML = profiles.length ? `<div class="pxr head"><span>#</span><span></span><span>Nome</span><span>Endereço</span><span>Usuário</span><span>País</span><span>Latência</span><span></span><span></span><span></span></div>` + list.map(([p, i]) => rowHTML(p, i)).join('') : '<div class="hint empty">Nenhum proxy ainda. Cole uma lista acima ou adicione um.</div>';
   updateStat();
 }
 function renderRow(id) {
@@ -239,6 +240,7 @@ $('#prof-list').addEventListener('click', e => {
   const id = row.dataset.id;
   if (e.target.closest('[data-del]')) { profiles = profiles.filter(p => p.id !== id); testQueue = testQueue.filter(x => x !== id); saveSoon(); renderProfiles(); return; }
   if (e.target.closest('[data-test]')) { const p = profiles.find(x => x.id === id); if (p) testList([p]); }
+  if (e.target.closest('[data-open]')) { show('#m-prof', false); aoshi.newTab(id, 'https://ipwho.is/'); }
 });
 $('#btn-profiles').onclick = openProfiles;
 
