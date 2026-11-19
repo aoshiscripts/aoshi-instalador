@@ -41,9 +41,10 @@ const DEFAULTS = {
   blockTrackers: true, dnt: true, webrtcProxy: true, denyPerms: true, clearOnExit: false,
   downloadDir: '', askDownload: false,
   checkMin: 5, autoStart: false, confirmClose: false,
-  accent: '#7c3aed', tabProxy: true, tabCompact: false
+  accent: '#7c3aed', tabProxy: true, tabCompact: false, theme: 'escuro'
 };
 const S = () => Object.assign({}, DEFAULTS, store.settings || {});
+const THEME_BG = { escuro: '#121216', claro: '#ececf0', creme: '#ebe6d8', militar: '#15180f', grafite: '#1a1b1e', ardosia: '#11161c' };
 const SEARCH = { google: 'https://www.google.com/search?q=', bing: 'https://www.bing.com/search?q=', duck: 'https://duckduckgo.com/?q=' };
 function load() {
   try { store = Object.assign(store, JSON.parse(fs.readFileSync(DATA_FILE(), 'utf8'))); } catch (_) {}
@@ -483,7 +484,7 @@ function createWindow() {
   try { if (ECE && ECE.handleCRXProtocol) ECE.handleCRXProtocol(session.defaultSession); } catch (e) { console.warn('[extensões] crx', e.message); }
   win = new BrowserWindow({
     width: b.width || 1400, height: b.height || 900, x: b.x, y: b.y, minWidth: 800, minHeight: 500,
-    title: 'Aoshi Pro', backgroundColor: '#121216', autoHideMenuBar: true, show: false,
+    title: 'Aoshi Pro', backgroundColor: THEME_BG[S().theme] || '#121216', autoHideMenuBar: true, show: false,
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'ui-preload.js'), contextIsolation: true, sandbox: false }
   });
@@ -808,6 +809,7 @@ ipcMain.handle('settings:save', (_, next) => {
   const st = S(); saveNow();
   if (st.webrtcProxy !== prev.webrtcProxy) tabs.forEach(t => { try { t.view.webContents.setWebRTCIPHandlingPolicy(webrtcPolicy(t)); } catch (_) {} });
   if (st.zoom !== prev.zoom) tabs.forEach(t => { if (t.zoom == null) t.view.webContents.setZoomFactor((Number(st.zoom) || 100) / 100); });
+  if (st.theme !== prev.theme) { try { win && win.setBackgroundColor(THEME_BG[st.theme] || '#121216'); } catch (_) {} }
   if (st.checkMin !== prev.checkMin) restartCheckTimer();
   if (st.autoStart !== prev.autoStart && app.isPackaged) { try { app.setLoginItemSettings({ openAtLogin: !!st.autoStart }); } catch (_) {} }
   return st;

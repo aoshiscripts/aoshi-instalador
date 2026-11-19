@@ -441,6 +441,7 @@ async function openSettings(sec) {
   $('#down-dir-txt').textContent = settings.downloadDir || setInfo.downloadsDefault;
   $('#set-px-count').textContent = setInfo.profileCount ? `${setInfo.profileCount} proxies cadastrados` : 'Nenhum proxy cadastrado';
   document.querySelectorAll('#m-set .swatch').forEach(b => b.classList.toggle('on', b.dataset.accent.toLowerCase() === String(settings.accent || '#7c3aed').toLowerCase()));
+  document.querySelectorAll('#m-set .theme-opt').forEach(b => b.classList.toggle('on', b.dataset.theme === (settings.theme || 'escuro')));
   $('#set-q').value = ''; filterSettings('');
   showSec(sec || document.querySelector('.set-nav a.on')?.dataset.sec || 'geral');
   show('#m-set', true);
@@ -459,11 +460,15 @@ function applyLook(st) {
   const acc = /^#[0-9a-f]{6}$/i.test(st.accent || '') ? st.accent : '#7c3aed';
   document.documentElement.style.setProperty('--acc', acc);
   document.documentElement.style.setProperty('--acc2', shade(acc, 0.18));
+  const THEMES = ['escuro', 'claro', 'creme', 'militar', 'grafite', 'ardosia'];
+  const th = THEMES.includes(st.theme) ? st.theme : 'escuro';
+  if (th === 'escuro') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', th);
   document.body.classList.toggle('no-tabproxy', st.tabProxy === false);
   document.body.classList.toggle('tab-compact', !!st.tabCompact);
 }
 aoshi.getSettings().then(i => { settings = i.settings; applyLook(settings); }).catch(() => {});
 $('#m-set').addEventListener('click', e => {
+  const to = e.target.closest('.theme-opt'); if (to) { document.querySelectorAll('#m-set .theme-opt').forEach(b => b.classList.toggle('on', b === to)); saveSetting('theme', to.dataset.theme); return; }
   const sw = e.target.closest('.swatch'); if (sw) { document.querySelectorAll('#m-set .swatch').forEach(b => b.classList.toggle('on', b === sw)); saveSetting('accent', sw.dataset.accent); return; }
   const it = e.target.closest('.item.radio'); if (it && !e.target.matches('input')) { const r = it.querySelector('input[type=radio]'); if (r && !r.checked) { r.checked = true; saveSetting('startup', r.value); } }
 });
