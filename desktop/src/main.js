@@ -521,27 +521,42 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 // Na primeira vez que cada versão abre: regrava os atalhos (área de trabalho, menu Iniciar e barra de tarefas)
 // apontando para o ícone do programa e manda o Windows recarregar o cache de ícones.
 function refreshWindowsIcons() {
-  if (process.platform !== 'win32' || !app.isPackaged || store.iconsFor === app.getVersion()) return;
-  store.iconsFor = app.getVersion(); save();
-  const exe = process.execPath, roam = process.env.APPDATA || '';
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  // O Windows guarda o ícone pelo caminho do arquivo: um .ico com o nome da versão obriga ele a desenhar o novo.
+  const exe = process.execPath, roam = process.env.APPDATA || '', ver = app.getVersion();
+  let ico = exe;
+  try {
+    const dir = path.join(app.getPath('userData'), 'icons');
+    fs.mkdirSync(dir, { recursive: true });
+    ico = path.join(dir, `aoshi-pro-${ver}.ico`);
+    if (!fs.existsSync(ico)) fs.writeFileSync(ico, fs.readFileSync(path.join(__dirname, 'icon.ico')));
+    fs.readdirSync(dir).forEach(f => { if (/^aoshi-pro-.*\.ico$/i.test(f) && path.join(dir, f) !== ico) try { fs.unlinkSync(path.join(dir, f)); } catch (_) {} });
+  } catch (_) { ico = exe; }
   const links = [
     path.join(app.getPath('desktop'), 'Aoshi Pro.lnk'),
+    path.join(process.env.PUBLIC || 'C:\\Users\\Public', 'Desktop', 'Aoshi Pro.lnk'),
     path.join(roam, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Aoshi Pro.lnk'),
     path.join(roam, 'Microsoft', 'Internet Explorer', 'Quick Launch', 'User Pinned', 'TaskBar', 'Aoshi Pro.lnk')
   ];
+  let changed = false;
   links.forEach(lnk => {
     try {
       if (!fs.existsSync(lnk)) return;
       const cur = shell.readShortcutLink(lnk);
-      if (cur && cur.target && path.resolve(cur.target).toLowerCase() !== path.resolve(exe).toLowerCase()) return; // atalho de outro programa
-      shell.writeShortcutLink(lnk, 'update', { target: exe, icon: exe, iconIndex: 0 });
+      // só atalhos do Aoshi Pro (mesmo que apontem para uma instalação antiga em outra pasta)
+      if (!cur || !/aoshi pro\.exe$/i.test(cur.target || '')) return;
+      if (cur.icon === ico && path.resolve(cur.target).toLowerCase() === path.resolve(exe).toLowerCase()) return;
+      changed = shell.writeShortcutLink(lnk, 'replace', Object.assign({}, cur, { target: exe, cwd: path.dirname(exe), icon: ico, iconIndex: 0 })) || changed;
     } catch (_) {}
   });
-  try {
-    const { spawn } = require('child_process');
-    const ie4 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'ie4uinit.exe');
-    if (fs.existsSync(ie4)) spawn(ie4, ['-show'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-  } catch (_) {}
+  if (changed || store.iconsFor !== ver) {
+    store.iconsFor = ver; save();
+    try {
+      const { spawn } = require('child_process');
+      const ie4 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'ie4uinit.exe');
+      if (fs.existsSync(ie4)) spawn(ie4, ['-show'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } catch (_) {}
+  }
 }
 app.whenReady().then(async () => {
   load();
