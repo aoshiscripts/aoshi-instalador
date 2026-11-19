@@ -508,7 +508,7 @@ function proxyGet(p, url, ms, method) {
   const u = new URL(url), port = Number(u.port) || 443;
   return proxyTunnel(p, u.hostname, port, ms).then(raw => new Promise((resolve, reject) => {
     const timer = setTimeout(() => { req.destroy(new Error('TIMED_OUT')); }, ms);
-    const req = https.request({ host: u.hostname, port, path: u.pathname + u.search, method: method || 'GET', agent: false, servername: u.hostname,
+    const req = https.request({ host: u.hostname, port, path: u.pathname + u.search, method: method || 'GET', servername: u.hostname,
       createConnection: () => tls.connect({ socket: raw, servername: u.hostname }),
       headers: { 'User-Agent': chromeUA(), 'Accept': 'application/json,*/*', 'Connection': 'close' } }, res => {
       const chunks = []; res.on('data', c => { if (chunks.length < 64) chunks.push(c); });

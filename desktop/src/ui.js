@@ -436,7 +436,9 @@ aoshi.on((ch, d) => {
     profiles = d.profiles || []; renderTabs();
     // 1.4.7: o teste antigo dava 407 falso em proxy HTTP com senha → testa de novo esses, uma vez
     // 1.4.9: país detectado de novo com a votação entre serviços
-    if (!localStorage.getItem('px-geo-149')) { localStorage.setItem('px-geo-149', '1'); localStorage.setItem('px-retest-147', '1'); const again = profiles.filter(p => p.status === 'ok' || (p.status === 'bad' && /407|usuário ou a senha/.test(p.error || ''))); if (again.length) testList(again); }
+// 1.4.10: o teste anterior saía sem o proxy → testa a lista toda de novo, uma vez
+    if (!localStorage.getItem('px-all-1410')) { ['px-all-1410', 'px-geo-149', 'px-retest-147'].forEach(k => localStorage.setItem(k, '1')); const again = profiles.filter(p => p.status === 'ok' || p.status === 'bad'); if (again.length) testList(again); }
+    else if (!localStorage.getItem('px-geo-149')) { localStorage.setItem('px-geo-149', '1'); localStorage.setItem('px-retest-147', '1'); const again = profiles.filter(p => p.status === 'ok' || (p.status === 'bad' && /407|usuário ou a senha/.test(p.error || ''))); if (again.length) testList(again); }
     else if (!localStorage.getItem('px-retest-147')) { localStorage.setItem('px-retest-147', '1'); const again = profiles.filter(p => p.status === 'bad' && /407|usuário ou a senha/.test(p.error || '')); if (again.length) testList(again); }
   }
   else if (ch === 'tab-rename') startRename(d.id);
