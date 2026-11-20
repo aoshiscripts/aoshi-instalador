@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.13
+// @version      1.14
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -82,26 +82,28 @@ const aoshiInstallerMain = () => (function () {
 
   function toast(text, bad, action) {
     const old = document.getElementById('aoshi-installer-toast'); if (old) old.remove();
+    // !important em tudo: o tema do Aoshi Pro pinta qualquer caixa "aoshi-…" e não pode sobrescrever este aviso
+    const imp = css => css.split(';').filter(Boolean).map(d => d + '!important').join(';');
     const box = document.createElement('div');
     box.id = 'aoshi-installer-toast';
     // segue o tema atual do Aoshi Pro (claro/escuro e a cor escolhida); sem o Hub carregado, usa o escuro padrão
-    box.style.cssText = 'position:fixed;right:16px;bottom:44px;z-index:2147483000;max-width:340px;padding:10px 28px 10px 12px;border-radius:12px;' +
+    box.style.cssText = imp('position:fixed;right:16px;bottom:44px;z-index:2147483000;max-width:340px;padding:10px 28px 10px 12px;border-radius:12px;' +
       'background:var(--aou-bg,#17171c);color:var(--aou-text,#f4f4f5);-webkit-text-fill-color:var(--aou-text,#f4f4f5);' +
       'border:1px solid ' + (bad ? '#dc2626' : 'var(--aou-border,rgba(124,58,237,.6))') + ';' +
       'font:12px/1.45 var(--aou-font,Inter,system-ui,Segoe UI,Arial,sans-serif);box-shadow:var(--aou-shadow,0 8px 24px rgba(0,0,0,.45));' +
-      'backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2)';
-    const msg = document.createElement('div'); msg.textContent = text; box.appendChild(msg);
+      'backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);background-image:none');
+    const msg = document.createElement('div'); msg.textContent = text; msg.style.cssText = imp('background:none;border:0;padding:0;margin:0;color:inherit;-webkit-text-fill-color:inherit;box-shadow:none'); box.appendChild(msg);
     if (action) {
       const b = document.createElement('button');
       b.type = 'button'; b.textContent = action.label;
-      b.style.cssText = 'margin-top:8px;padding:5px 12px;border-radius:7px;border:0;background:var(--aou-accent,#7c3aed);color:#fff;-webkit-text-fill-color:#fff;font:600 12px var(--aou-font,Inter,system-ui,Arial,sans-serif);cursor:pointer';
-      b.addEventListener('mouseenter', () => { b.style.background = 'var(--aou-accent-hover,#6d28d9)'; });
-      b.addEventListener('mouseleave', () => { b.style.background = 'var(--aou-accent,#7c3aed)'; });
+      b.style.cssText = imp('margin-top:8px;padding:5px 12px;border-radius:7px;border:0;background:var(--aou-accent,#7c3aed);color:#fff;-webkit-text-fill-color:#fff;font:600 12px var(--aou-font,Inter,system-ui,Arial,sans-serif);cursor:pointer;background-image:none');
+      b.addEventListener('mouseenter', () => { b.style.setProperty('background', 'var(--aou-accent-hover,#6d28d9)', 'important'); });
+      b.addEventListener('mouseleave', () => { b.style.setProperty('background', 'var(--aou-accent,#7c3aed)', 'important'); });
       b.addEventListener('click', action.run); box.appendChild(b);
     }
     const x = document.createElement('span');
     x.textContent = '×'; x.title = 'Fechar';
-    x.style.cssText = 'position:absolute;right:9px;top:5px;cursor:pointer;font-size:15px;line-height:1;color:var(--aou-meta,#a1a1aa);-webkit-text-fill-color:var(--aou-meta,#a1a1aa)';
+    x.style.cssText = imp('position:absolute;right:9px;top:5px;cursor:pointer;font-size:15px;line-height:1;color:var(--aou-meta,#a1a1aa);-webkit-text-fill-color:var(--aou-meta,#a1a1aa);background:none');
     x.addEventListener('click', () => box.remove()); box.appendChild(x);
     document.body.appendChild(box);
     if (!bad && !action) setTimeout(() => box.remove(), 8000);
