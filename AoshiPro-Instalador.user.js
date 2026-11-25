@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.15
+// @version      1.16
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -81,6 +81,7 @@ const aoshiInstallerMain = () => (function () {
   }
 
   function toast(text, bad, action) {
+    if (!document.body) { document.addEventListener('DOMContentLoaded', () => toast(text, bad, action), { once: true }); return; }
     const old = document.getElementById('aoshi-installer-toast'); if (old) old.remove();
     // !important em tudo: o tema do Aoshi Pro pinta qualquer caixa "aoshi-…" e não pode sobrescrever este aviso
     const imp = css => css.split(';').filter(Boolean).map(d => d + '!important').join(';');
@@ -111,6 +112,8 @@ const aoshiInstallerMain = () => (function () {
 
   // Janelinha para colar o token (uma vez).
   function askToken(reason) {
+    // o instalador roda antes de a página existir: sem <body> ainda, espera a página montar e só então mostra a janela
+    if (!document.body) { document.addEventListener('DOMContentLoaded', () => askToken(reason), { once: true }); return; }
     if (document.getElementById('aoshi-installer-token')) return;
     const box = document.createElement('div');
     box.id = 'aoshi-installer-token';
@@ -233,7 +236,7 @@ const aoshiInstallerMain = () => (function () {
   unpack(GM_getValue(K.code, '')).then(code => { if (code) run(code); })
     .catch(() => { GM_deleteValue(K.code); GM_deleteValue(K.etag); GM_deleteValue(K.at); })
     .finally(() => {
-      check(false);
+      try { check(false); } catch (_) {}
       // Página aberta por muito tempo (automáticos rodando): confere sozinho de tempos em tempos.
       setInterval(() => check(false), 60000);
       // Outra aba pode ter baixado a versão nova: avisa o Hub desta página também.
