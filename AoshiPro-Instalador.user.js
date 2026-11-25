@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.14
+// @version      1.15
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -200,15 +200,17 @@ const aoshiInstallerMain = () => (function () {
     if (!force && Date.now() - Number(GM_getValue(K.at, 0)) < CHECK_MIN * 60000) return;
     GM_setValue(K.at, Date.now());
     const had = !!GM_getValue(K.code, '');
+    const inGame = location.pathname.indexOf('/game.php') === 0;
     fetchCode(token, had ? GM_getValue(K.etag, '') : '').then(async r => {
       if (r.kind === 'new') {
         await store(r);
         if (!had) { toast('Aoshi Pro instalado. Recarregando a página…'); setTimeout(() => location.reload(), 900); }
-        else toast('Aoshi Pro atualizado. A versão nova vale a partir da próxima página.', false, { label: 'Recarregar agora', run: () => location.reload() });
+        // aviso automático só dentro do jogo: na tela de login/página inicial a atualização é silenciosa (vale na próxima página de qualquer jeito)
+        else if (force || inGame) toast('Aoshi Pro atualizado. A versão nova vale a partir da próxima página.', false, { label: 'Recarregar agora', run: () => location.reload() });
         sync();
         if (force) reply('Versão nova baixada. Recarregue a página para usar.');
       } else if (r.kind === 'same') { if (force) { toast('Aoshi Pro já está na última versão.'); reply('Já está na última versão.'); } }
-      else if (r.kind === 'auth') { if (had) toast(r.message + ' Rodando a última cópia guardada.', true, { label: 'Trocar token', run: () => askToken(r.message) }); else askToken(r.message); }
+      else if (r.kind === 'auth') { if (had) { if (force || inGame) toast(r.message + ' Rodando a última cópia guardada.', true, { label: 'Trocar token', run: () => askToken(r.message) }); } else askToken(r.message); }
       else if (force || !had) toast(r.message + (had ? ' Rodando a última cópia guardada.' : ''), true);
       if (force && r.kind !== 'new' && r.kind !== 'same') reply(r.message || 'Não deu para conferir agora.');
     });
