@@ -23,6 +23,9 @@ const HOME = 'https://www.tribalwars.com.br/';
 const TW_HOST = /(^|\.)(tribalwars|die-staemme|staemme|plemiona|guerretribale|divokekmeny|klanhaboru|triburile|vojnaplemen)\./i;
 
 if (!app.requestSingleInstanceLock()) { app.quit(); }
+// Idioma do navegador: português do Brasil. É por ele que as extensões escolhem a tradução (_locales/pt_BR);
+// sem isso o navegador segue o idioma do Windows e, num Windows em inglês, as extensões abrem em inglês.
+app.commandLine.appendSwitch('lang', 'pt-BR');
 // Privacidade: sem descoberta de IP local pelo WebRTC
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'disable_non_proxied_udp');
@@ -392,7 +395,7 @@ function selectExtTab() {
   try { const e = extOf.get('persist:aoshi-' + (t.profileId || 'direto')); e && e.selectTab(t.view.webContents); } catch (_) {}
 }
 function persistTabs() {
-  store.tabs = tabs.filter(alive).map(t => { let u = t.view.webContents.getURL() || HOME; if (/^file:.*blocked\.html/i.test(u)) u = t.blockedUrl || HOME; else if (/^file:.*phish\.html/i.test(u)) u = HOME; return { profileId: t.profileId || '', url: u, name: t.name || '' }; });
+  store.tabs = tabs.filter(t => alive(t) && !t.extra).map(t => { let u = t.view.webContents.getURL() || HOME; if (/^file:.*blocked\.html/i.test(u)) u = t.blockedUrl || HOME; else if (/^file:.*phish\.html/i.test(u)) u = HOME; return { profileId: t.profileId || '', url: u, name: t.name || '' }; });
   // vínculo aba ↔ proxy: fica guardado mesmo depois de fechar a aba (nome e última página)
   store.links = store.links || {};
   store.tabs.forEach(x => { if (x.profileId && profileOf(x.profileId)) store.links[x.profileId] = { name: x.name, url: /^https?:/i.test(x.url) ? x.url : ((store.links[x.profileId] || {}).url || HOME), at: Date.now() }; });
@@ -400,14 +403,14 @@ function persistTabs() {
 }
 const linkInfo = () => {
   const links = store.links || {}, out = {};
-  Object.keys(links).forEach(pid => { if (!profileOf(pid)) return; const t = tabs.find(x => alive(x) && x.profileId === pid); out[pid] = Object.assign({}, links[pid], { open: t ? t.id : '', name: t ? t.name : links[pid].name }); });
+  Object.keys(links).forEach(pid => { if (!profileOf(pid)) return; const t = tabs.find(x => alive(x) && x.profileId === pid && !x.extra); out[pid] = Object.assign({}, links[pid], { open: t ? t.id : '', name: t ? t.name : links[pid].name }); });
   return out;
 };
 
 async function newTab(profileId, url, activate = true, name = '', opts = {}) {
   // um proxy = uma aba: se o proxy já está numa aba aberta, vai para ela em vez de abrir outra
   if (profileId && !opts.shared) {
-    const have = tabs.find(x => alive(x) && x.profileId === profileId);
+    const have = tabs.find(x => alive(x) && x.profileId === profileId && !x.extra);
     if (have) {
       activeId = have.id; layout(); pushTabs();
       const p = profileOf(profileId);
@@ -420,7 +423,8 @@ async function newTab(profileId, url, activate = true, name = '', opts = {}) {
   const ses = await sessionFor(profileId);
   // sandbox ligado: necessário para a API das extensões nas páginas
   const view = new WebContentsView({ webPreferences: { session: ses, contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js'), spellcheck: false } });
-  const t = { id: crypto.randomUUID(), profileId: profileId || '', view, name: String(name || '').slice(0, 40) };
+  // extra: aba aberta por um link/janela ou por uma extensão, no mesmo proxy da aba vinculada (não é salva nem vira o vínculo)
+  const t = { id: crypto.randomUUID(), profileId: profileId || '', view, name: String(name || '').slice(0, 40), extra: !!(profileId && opts.shared) };
   tabs.push(t);
   win.contentView.addChildView(view);
   const wc = view.webContents;
@@ -433,7 +437,10 @@ async function newTab(profileId, url, activate = true, name = '', opts = {}) {
     const menu = new Menu();
     try { (ext ? ext.getContextMenuItems(wc, params) : []).forEach(i => menu.append(i)); } catch (_) {}
     if (menu.items.length) menu.append(new MenuItem({ type: 'separator' }));
-    if (params.linkURL) menu.append(new MenuItem({ label: t.profileId ? 'Abrir link nesta aba (proxy vinculado)' : 'Abrir link em nova aba', click: () => t.profileId ? wc.loadURL(params.linkURL) : newTab('', params.linkURL, true) }));
+    if (params.linkURL) {
+      menu.append(new MenuItem({ label: t.profileId ? 'Abrir link em nova aba (mesmo proxy)' : 'Abrir link em nova aba', click: () => newTab(t.profileId, params.linkURL, true, '', { shared: true }).catch(() => {}) }));
+      if (t.profileId) menu.append(new MenuItem({ label: 'Abrir link nesta aba', click: () => wc.loadURL(params.linkURL) }));
+    }
     if (params.isEditable) { menu.append(new MenuItem({ label: 'Recortar', role: 'cut' })); menu.append(new MenuItem({ label: 'Colar', role: 'paste' })); }
     if (params.selectionText || params.isEditable) menu.append(new MenuItem({ label: 'Copiar', role: 'copy' }));
     menu.append(new MenuItem({ label: 'Voltar', enabled: wc.navigationHistory?.canGoBack?.() ?? wc.canGoBack(), click: () => wc.navigationHistory?.goBack ? wc.navigationHistory.goBack() : wc.goBack() }));
@@ -445,8 +452,9 @@ async function newTab(profileId, url, activate = true, name = '', opts = {}) {
   try { wc.setWebRTCIPHandlingPolicy(webrtcPolicy(t)); } catch (_) {}
   wc.on('did-finish-load', () => { if (t.zoom == null) wc.setZoomFactor((Number(S().zoom) || 100) / 100); });
   wc.on('found-in-page', (_, r) => { if (t.id === activeId) ui('find', { matches: r.matches, active: r.activeMatchOrdinal }); });
-  // janela nova: aba com proxy abre na própria aba (o proxy não vai para outra); sem proxy, abre outra aba
-  wc.setWindowOpenHandler(({ url: u }) => { if (t.profileId) { if (/^https?:/i.test(u)) wc.loadURL(u); } else newTab('', u, true); return { action: 'deny' }; });
+  // janela nova (link que abre em outra aba, window.open): abre uma aba nova. Aba com proxy abre a nova no MESMO proxy
+  // e na mesma sessão (mesmo login), então nada sai por fora do proxy e a aba do jogo continua onde estava.
+  wc.setWindowOpenHandler(({ url: u }) => { if (/^https?:/i.test(u)) newTab(t.profileId, u, true, '', { shared: true }).catch(() => {}); return { action: 'deny' }; });
   wc.on('dom-ready', () => { try { if (TW_HOST.test(new URL(wc.getURL()).hostname)) inject(wc); } catch (_) {} });
   ['page-title-updated', 'did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading'].forEach(ev => wc.on(ev, pushTabs));
   wc.on('before-input-event', (e, input) => {

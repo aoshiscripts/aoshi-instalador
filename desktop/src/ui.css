@@ -325,15 +325,11 @@ body.tab-compact .tab { min-width:90px; max-width:160px; height:30px; }
 .px-filt select { padding:4px 6px; }
 .px-filt button:disabled, .px-filt select:disabled { opacity:.45; cursor:default; }
 
-/* engrenagem das configurações: gira devagar, acelera e brilha ao passar o mouse, dá um giro ao clicar */
-@keyframes gearSpin { to { transform:rotate(360deg); } }
+/* botão Configurações: igual aos outros da barra; a engrenagem só dá um giro ao clicar */
 @keyframes gearKick { 0% { transform:rotate(0) scale(1); } 40% { transform:rotate(200deg) scale(.86); } 100% { transform:rotate(360deg) scale(1); } }
-#tabbar #btn-settings.gear { align-self:center; box-sizing:border-box; width:30px; height:28px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:7px; color:var(--acc-tx); transition:background .2s, color .2s, box-shadow .2s, border-color .2s; }
-#tabbar #btn-scripts, #tabbar #btn-links, #tabbar #btn-profiles, #tabbar #btn-update { box-sizing:border-box; height:28px; display:inline-flex; align-items:center; }
-#btn-settings.gear svg { overflow:visible; }
-#btn-settings.gear .g-rot { transform-origin:12px 12px; transform-box:view-box; animation:gearSpin 14s linear infinite; }
-#tabbar #btn-settings.gear:hover { border-color:rgb(167 139 250 / .6); color:var(--strong); background:rgb(124 58 237 / .22); box-shadow:0 0 0 1px rgb(167 139 250 / .45), 0 0 12px rgb(124 58 237 / .55); }
-#btn-settings.gear:hover .g-rot { animation-duration:2.4s; filter:drop-shadow(0 0 3px rgb(196 181 253 / .9)); }
+#tabbar #btn-scripts, #tabbar #btn-links, #tabbar #btn-profiles, #tabbar #btn-update, #tabbar #btn-settings { box-sizing:border-box; height:28px; display:inline-flex; align-items:center; }
+#btn-settings svg { margin-right:4px; overflow:visible; }
+#btn-settings.gear .g-rot { transform-origin:12px 12px; transform-box:view-box; }
 #btn-settings.gear.kick .g-rot { animation:gearKick .55s cubic-bezier(.2,.8,.2,1) 1; }
 @media (prefers-reduced-motion: reduce) { #btn-settings.gear .g-rot { animation:none; } }
 /* temas claros: cores que eram para fundo escuro */
@@ -349,5 +345,4 @@ body.tab-compact .tab { min-width:90px; max-width:160px; height:30px; }
 :root:is([data-theme="claro"],[data-theme="creme"]) .lk-arrow { color:#7c3aed; }
 :root:is([data-theme="claro"],[data-theme="creme"]) .pxr .ptype.t-socks5 { background:#ede9fe; border-color:#a78bfa; color:#5b21b6; }
 :root:is([data-theme="claro"],[data-theme="creme"]) .pxr .ptype.t-https { background:#dcfce7; border-color:#86efac; color:#166534; }
-:root:is([data-theme="claro"],[data-theme="creme"]) #btn-settings.gear { color:#7c3aed; }
 :root:is([data-theme="claro"],[data-theme="creme"]) .tab .tflag { box-shadow:0 0 0 1px rgba(0,0,0,.15); }
