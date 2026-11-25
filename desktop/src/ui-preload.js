@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('aoshi', {
   clearToken: () => ipcRenderer.invoke('token:clear'),
   checkAppUpdate: () => ipcRenderer.invoke('app:check-update'),
   openReleases: () => ipcRenderer.invoke('app:open-releases'),
+  diagOpen: () => ipcRenderer.invoke('diag:open'),
   extList: () => ipcRenderer.invoke('ext:list'),
   extStore: () => ipcRenderer.invoke('ext:store'),
   extRemove: id => ipcRenderer.invoke('ext:remove', id),

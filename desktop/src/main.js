@@ -195,7 +195,41 @@ const chromeUA = () => session.defaultSession.getUserAgent().replace(/\s?Electro
 // ---------- Privacidade ----------
 // Rastreadores conhecidos bloqueados; pedidos levam "não rastrear" (DNT e GPC).
 const TRACKERS = /(^|\.)(google-analytics\.com|googletagmanager\.com|googletagservices\.com|doubleclick\.net|googlesyndication\.com|adservice\.google\.[a-z.]+|facebook\.net|connect\.facebook\.com|hotjar\.(com|io)|clarity\.ms|scorecardresearch\.com|quantserve\.com|criteo\.(com|net)|taboola\.com|outbrain\.com|adnxs\.com|amazon-adsystem\.com|mixpanel\.com|segment\.(io|com)|bat\.bing\.com|ads\.yahoo\.com|yandex\.ru\/metrika|mc\.yandex\.ru|tiktok\.com\/i18n\/pixel|analytics\.tiktok\.com|newrelic\.com|nr-data\.net)$/i;
+// ---------- Diagnóstico das extensões ----------
+// Guarda os erros de rede e de console das extensões (sem cookies, senhas nem o texto depois do "?" dos endereços),
+// para dar para ver por que uma extensão não funciona. Abre pelo botão em Configurações › Sobre.
+const diagLines = [];
+const diagFile = () => path.join(app.getPath('userData'), 'diagnostico-extensoes.log');
+const diagUrl = u => { try { const x = new URL(u); return x.protocol === 'chrome-extension:' ? 'extensão:' + x.pathname : x.origin + x.pathname; } catch (_) { return String(u || '').slice(0, 80); } };
+function diagLog(part, text) {
+  diagLines.push(`${new Date().toISOString().slice(0, 19).replace('T', ' ')} [${String(part || '').replace('persist:aoshi-', '') || '-'}] ${String(text).slice(0, 400)}`);
+  if (diagLines.length > 500) diagLines.splice(0, diagLines.length - 500);
+}
+const isExtUrl = u => /^chrome-extension:/i.test(String(u || ''));
+function diagWatch(ses, part) {
+  const who = d => { let u = ''; try { u = d.webContents ? d.webContents.getURL() : ''; } catch (_) {} return isExtUrl(u) || isExtUrl(d.referrer) ? 'extensão' : !d.webContents ? 'segundo plano' : ''; };
+  try {
+    ses.webRequest.onErrorOccurred(d => { const w = who(d); if (!w || d.error === 'net::ERR_ABORTED') return; diagLog(part, `${w}: ${d.method} ${diagUrl(d.url)} falhou: ${d.error}`); });
+    ses.webRequest.onCompleted(d => { const w = who(d); if (!w || d.statusCode < 400) return; diagLog(part, `${w}: ${d.method} ${diagUrl(d.url)} respondeu ${d.statusCode}`); });
+  } catch (_) {}
+  try { ses.serviceWorkers.on('console-message', (e, m) => { if (m && isExtUrl(m.sourceUrl) && Number(m.level) >= 2) diagLog(part, `console (segundo plano): ${m.message}`); }); } catch (_) {}
+}
+app.on('web-contents-created', (_, wc) => {
+  wc.on('console-message', (e, level, message) => {
+    let u = ''; try { u = wc.getURL(); } catch (_) {}
+    if (!isExtUrl(u)) return;
+    const lv = e && e.level !== undefined ? e.level : level, msg = e && e.message !== undefined ? e.message : message;
+    if (lv === 'error' || lv === 'warning' || Number(lv) >= 2) diagLog('', `console (janela da extensão): ${msg}`);
+  });
+});
+ipcMain.handle('diag:open', async () => {
+  const head = [`Fenrir Pro ${app.getVersion()} · Electron ${process.versions.electron} · ${new Date().toISOString()}`, 'Erros das extensões nesta sessão do programa (o mais novo no fim):', ''];
+  try { fs.writeFileSync(diagFile(), head.concat(diagLines.length ? diagLines : ['(nenhum erro registrado ainda: abra a extensão, repita o que deu errado e clique de novo)']).join('\r\n'), 'utf8'); } catch (e) { return { error: String(e.message || e) }; }
+  shell.showItemInFolder(diagFile());
+  return { file: diagFile(), lines: diagLines.length };
+});
 function hardenSession(ses, part) {
+  diagWatch(ses, part);
   // sem baixar dicionário do corretor (era um pedido a mais para o Google em cada sessão)
   try { ses.setSpellCheckerEnabled(false); ses.setSpellCheckerDictionaryDownloadURL('https://127.0.0.1:9/'); } catch (_) {}
   ses.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (d, cb) => {
@@ -454,7 +488,16 @@ async function newTab(profileId, url, activate = true, name = '', opts = {}) {
   wc.on('found-in-page', (_, r) => { if (t.id === activeId) ui('find', { matches: r.matches, active: r.activeMatchOrdinal }); });
   // janela nova (link que abre em outra aba, window.open): abre uma aba nova. Aba com proxy abre a nova no MESMO proxy
   // e na mesma sessão (mesmo login), então nada sai por fora do proxy e a aba do jogo continua onde estava.
-  wc.setWindowOpenHandler(({ url: u }) => { if (/^https?:/i.test(u)) newTab(t.profileId, u, true, '', { shared: true }).catch(() => {}); return { action: 'deny' }; });
+  // Janela pop-up (window.open com tamanho: login "Entrar com…", pagamento) abre como janela de verdade, na MESMA sessão e proxy,
+  // porque esse tipo de página precisa conversar com a que abriu. O resto (link para outra aba) abre uma aba nova.
+  wc.setWindowOpenHandler(({ url: u, disposition }) => {
+    if (disposition === 'new-window' && (/^https?:/i.test(u) || u === 'about:blank' || u === '')) {
+      return { action: 'allow', overrideBrowserWindowOptions: { parent: win, width: 520, height: 680, autoHideMenuBar: true, icon: path.join(__dirname, 'icon.png'), webPreferences: { session: wc.session, sandbox: true, contextIsolation: true, nodeIntegration: false } } };
+    }
+    if (/^https?:/i.test(u)) newTab(t.profileId, u, true, '', { shared: true }).catch(() => {});
+    return { action: 'deny' };
+  });
+  wc.on('did-create-window', child => { try { child.setMenuBarVisibility(false); child.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); } catch (_) {} });
   wc.on('dom-ready', () => { try { if (TW_HOST.test(new URL(wc.getURL()).hostname)) inject(wc); } catch (_) {} });
   ['page-title-updated', 'did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading'].forEach(ev => wc.on(ev, pushTabs));
   wc.on('before-input-event', (e, input) => {

@@ -585,6 +585,7 @@ $('#set-token').onclick = () => { show('#m-set', false); show('#m-token', true);
 $('#set-token-clear').onclick = async () => { await aoshi.clearToken(); $('#set-token-st').textContent = 'Nenhum token salvo.'; };
 $('#set-app-check').onclick = async () => { $('#set-app-msg').textContent = 'Procurando…'; $('#set-app-msg').textContent = await aoshi.checkAppUpdate(); };
 $('#set-releases').onclick = () => aoshi.openReleases();
+$('#set-diag').onclick = async () => { const r = await aoshi.diagOpen(); $('#set-diag-msg').textContent = r && r.error ? 'Não consegui gravar: ' + r.error : r && r.lines ? r.lines + ' linha(s) gravada(s). O arquivo foi mostrado na pasta.' : 'Nenhum erro registrado ainda. Repita o que deu errado na extensão e clique de novo.'; };
 $('#set-reset').onclick = async () => { settings = await aoshi.resetSettings(); show('#m-set', false); openSettings('prog'); notice('Configurações restauradas.'); };
 
 // Token do GitHub
