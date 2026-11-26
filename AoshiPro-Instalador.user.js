@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.16
+// @version      1.17
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -11,6 +11,7 @@
 // @match        https://*.tribalwars.co.uk/game.php*
 // @match        https://*.tribalwars.us/game.php*
 // @match        https://*.guerrastribales.es/game.php*
+// @match        https://*.guerretribale.fr/game.php*
 // @match        https://tribalwars.com.br/*
 // @match        https://www.tribalwars.com.br/*
 // @match        https://tribalwars.com.pt/*
@@ -23,6 +24,8 @@
 // @match        https://www.tribalwars.us/*
 // @match        https://guerrastribales.es/*
 // @match        https://www.guerrastribales.es/*
+// @match        https://guerretribale.fr/*
+// @match        https://www.guerretribale.fr/*
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
