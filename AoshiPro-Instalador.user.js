@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.17
+// @version      1.18
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -35,6 +35,16 @@
 // @run-at       document-start
 // @noframes
 // ==/UserScript==
+// Tribal Wars francês com o tradutor do Aoshi Pro ligado: esconde a página até o tradutor passar (ou 1,5 s no máximo),
+// para a tela não aparecer em francês antes de virar português. O Aoshi Pro tira a cortina assim que traduz.
+(function () {
+  try {
+    if (window.top !== window.self || !/(^|\.)guerretribale\.fr$/i.test(location.hostname) || localStorage.getItem('aoshi-module-tradutor-fr') === '0') return;
+    const put = () => { const r = document.documentElement; if (!r || document.getElementById('aoshi-tr-veil')) return !!r; const st = document.createElement('style'); st.id = 'aoshi-tr-veil'; st.textContent = 'html{visibility:hidden!important}'; r.appendChild(st); return true; };
+    if (!put()) document.addEventListener('readystatechange', put, { once: true });
+    setTimeout(() => { const st = document.getElementById('aoshi-tr-veil'); if (st) st.remove(); }, 1500);
+  } catch (_) {}
+})();
 
 /* Como funciona
    - O script de verdade fica no GitHub (repositório privado). Este instalador baixa, guarda uma cópia compactada

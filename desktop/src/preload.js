@@ -25,6 +25,16 @@ if (/^https?:$/.test(location.protocol) && !OFFICIAL_RE.test(location.hostname.r
 
 const isTW = /(^|\.)(tribalwars|die-staemme|staemme|plemiona|guerretribale|divokekmeny|klanhaboru|triburile|vojnaplemen)\./i.test(location.hostname);
 
+// Tribal Wars francês com o tradutor do Aoshi Pro ligado: esconde a página até o tradutor passar (ou 1,5 s no máximo),
+// para a tela não aparecer em francês antes de virar português. O Aoshi Pro tira a cortina assim que traduz.
+(function () {
+  try {
+    if (window.top !== window.self || !/(^|\.)guerretribale\.fr$/i.test(location.hostname) || localStorage.getItem('aoshi-module-tradutor-fr') === '0') return;
+    const put = () => { const r = document.documentElement; if (!r || document.getElementById('aoshi-tr-veil')) return !!r; const st = document.createElement('style'); st.id = 'aoshi-tr-veil'; st.textContent = 'html{visibility:hidden!important}'; r.appendChild(st); return true; };
+    if (!put()) document.addEventListener('readystatechange', put, { once: true });
+    setTimeout(() => { const st = document.getElementById('aoshi-tr-veil'); if (st) st.remove(); }, 1500);
+  } catch (_) {}
+})();
 if (isTW) {
   // Redutores de ícones no começo da página (mesmos ids de estilo do Aoshi Pro).
   try {
