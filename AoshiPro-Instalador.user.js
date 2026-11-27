@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Aoshi Pro • Instalador
 // @namespace    aoshi.scripts.tw
-// @version      1.18
+// @version      1.19
 // @updateURL    https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @downloadURL  https://raw.githubusercontent.com/aoshiscripts/aoshi-instalador/main/AoshiPro-Instalador.user.js
 // @description  Carrega o Aoshi Pro direto do repositório privado do GitHub (aoshiscripts/aoshi-pro) e mantém atualizado sozinho.
@@ -43,6 +43,21 @@
     const put = () => { const r = document.documentElement; if (!r || document.getElementById('aoshi-tr-veil')) return !!r; const st = document.createElement('style'); st.id = 'aoshi-tr-veil'; st.textContent = 'html{visibility:hidden!important}'; r.appendChild(st); return true; };
     if (!put()) document.addEventListener('readystatechange', put, { once: true });
     setTimeout(() => { const st = document.getElementById('aoshi-tr-veil'); if (st) st.remove(); }, 1500);
+  } catch (_) {}
+})();
+// Ponte entre o Tribal Wars brasileiro e o francês (são sites diferentes, um não enxerga o outro): no brasileiro o Aoshi Pro
+// informa o endereço atual do arquivo de textos do jogo; aqui ele fica guardado no Tampermonkey e é entregue ao tradutor no francês.
+(function () {
+  try {
+    if (window.top !== window.self) return;
+    const OK = /^https:\/\/dsbr\.innogamescdn\.com\/assets\/[\w.-]+\/js\/lang\.pt_BR\.[0-9a-f]+\.js$/, K = 'share:lang-pt-url';
+    if (/(^|\.)tribalwars\.com\.br$/i.test(location.hostname)) {
+      document.addEventListener('aoshi-share-set', () => { try { const v = String(document.documentElement.dataset.aoshiShareSet || ''); if (OK.test(v) && GM_getValue(K, '') !== v) GM_setValue(K, v); } catch (_) {} });
+    } else if (/(^|\.)guerretribale\.fr$/i.test(location.hostname)) {
+      const v = String(GM_getValue(K, '') || ''); if (!OK.test(v)) return;
+      const put = () => { const r = document.documentElement; if (r) r.dataset.aoshiLangPt = v; return !!r; };
+      if (!put()) document.addEventListener('readystatechange', put, { once: true });
+    }
   } catch (_) {}
 })();
 
